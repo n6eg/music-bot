@@ -127,16 +127,10 @@ function createPanelComponents() {
         emoji: "👤"
       },
       {
-        label: "افتار البوتات العام",
-        description: ".تغيير الصورة العامة لجميع البوتات في كل السيرفرات.",
+        label: "افتار البوتات",
+        description: ".تغيير صورة البوتات (عامة أو مخصصة لهذا السيرفر).",
         value: "mp_avatar",
-        emoji: "🌐"
-      },
-      {
-        label: "صورة خاصة بهذا السيرفر (Custom Branding)",
-        description: ".تغيير صورة/افتار البوتات في هذا السيرفر فقط (كل سيرفر صورة).",
-        value: "mp_server_avatar",
-        emoji: "✨"
+        emoji: "🖼️"
       },
       {
         label: "بنر البوتات",
@@ -268,6 +262,93 @@ async function handlePanelInteraction(interaction, clientsMap) {
     });
   }
 
+  // Handle Avatar Selection Buttons
+  if (interaction.isButton() && interaction.customId.startsWith("mp_btn_avatar_")) {
+    const action = interaction.customId.replace("mp_btn_avatar_", "");
+    if (action === "cancel") {
+      return interaction.update({
+        content: "❌ **تم إلغاء عملية تغيير الافتار.**",
+        components: []
+      }).catch(() => { });
+    }
+
+    if (action === "reset") {
+      let okCount = 0;
+      for (const c of clientsMap.values()) {
+        if (!c.user || !c.guilds?.cache?.has(interaction.guildId)) continue;
+        try {
+          await setGuildAvatar(c, interaction.guildId, null);
+          okCount++;
+        } catch (_) { }
+      }
+      return interaction.update({
+        content: `🔄 **تمت إعادة ضبط صورة ${okCount} بوت في هذا السيرفر إلى الصورة الافتراضية بنجاح.**`,
+        components: []
+      }).catch(() => { });
+    }
+
+    const isServer = action === "server";
+    await interaction.update({
+      content: isServer
+        ? "✨ **Custom Bot Branding - صورة خاصة بهذا السيرفر:**\nأرسل رابط صورة البوتات الخاصة بهذا السيرفر (أو أرفق صورة) في الشات الآن (خلال 60 ثانية)..."
+        : "🌐 **تغيير الصورة العامة لجميع البوتات (Global Avatar):**\nأرسل رابط صورة/افتار البوتات الجديد (أو أرفق صورة) في الشات الآن (خلال 60 ثانية)...",
+      components: []
+    }).catch(() => { });
+
+    const collector = interaction.channel.createMessageCollector({
+      filter: (m) =>
+        m.author.id === interaction.user.id &&
+        !looksLikeCommand(m.content, config.prefix),
+      max: 1,
+      time: 60000
+    });
+
+    collector.on("collect", async (msg) => {
+      const input = msg.attachments.first()?.url || msg.content.trim();
+      let okCount = 0;
+      let errCount = 0;
+
+      if (isServer) {
+        for (const c of clientsMap.values()) {
+          if (!c.user || !c.guilds?.cache?.has(interaction.guildId)) continue;
+          try {
+            await setGuildAvatar(c, interaction.guildId, input);
+            okCount++;
+          } catch (err) {
+            errCount++;
+          }
+        }
+        msg.reply(
+          okCount > 0
+            ? `✨ **تم تغيير صورة ${okCount} بوت في هذا السيرفر بنجاح! (Custom Branding)**`
+            : "❌ **فشل تغيير صورة السيرفر - تأكد من صحة رابط الصورة.**"
+        ).catch(() => { });
+      } else {
+        for (const c of clientsMap.values()) {
+          if (!c.user) continue;
+          try {
+            await c.user.setAvatar(input);
+            okCount++;
+          } catch (err) {
+            errCount++;
+          }
+        }
+        msg.reply(
+          okCount > 0
+            ? `🌐 **تم تغيير الصورة العامة لـ ${okCount} بوت بنجاح.**`
+            : "❌ **فشل تغيير الصورة العامة - تأكد من أن الرابط صورة مباشرة صالحة.**"
+        ).catch(() => { });
+      }
+    });
+
+    collector.on("end", (collected, reason) => {
+      if (reason === "time" && collected.size === 0) {
+        interaction.followUp({ content: "⏳ **انتهى الوقت المحدد لإرسال الصورة.**", flags: MessageFlags.Ephemeral }).catch(() => { });
+      }
+    });
+    return;
+  }
+
   // Handle Category Selection for Joining Bots
   if (interaction.isStringSelectMenu() && interaction.customId === "mp_select_category") {
     if (!(await ackEphemeral(interaction))) return;
@@ -329,7 +410,7 @@ async function handlePanelInteraction(interaction, clientsMap) {
     // and collector cases reply instantly - everything else is deferred right away
     // so slow handlers never hit Discord's 3-second interaction window.
     const modalCases = ["mp_number", "mp_game", "mp_status", "mp_server", "mp_edit_owner", "mp_give_role", "mp_lang", "mp_platform", "mp_prefix"];
-    const collectorCases = ["mp_name", "mp_avatar", "mp_banner", "mp_server_avatar"];
+    const collectorCases = ["mp_name", "mp_avatar", "mp_banner"];
     if (!modalCases.includes(selected) && !collectorCases.includes(selected)) {
       if (!(await ackEphemeral(interaction))) return;
     }
@@ -471,87 +552,34 @@ async function handlePanelInteraction(interaction, clientsMap) {
         return;
       }
 
-      // Direct Chat Collector for Avatar
+      // Direct Chat Collector / Selection for Avatar
       case "mp_avatar": {
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId("mp_btn_avatar_server")
+            .setLabel("صورة مخصصة لهذا السيرفر (Custom Branding)")
+            .setEmoji("✨")
+            .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId("mp_btn_avatar_global")
+            .setLabel("صورة عامة لكل السيرفرات")
+            .setEmoji("🌐")
+            .setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder()
+            .setCustomId("mp_btn_avatar_reset")
+            .setLabel("استعادة الصورة الأصلية للسيرفر")
+            .setEmoji("🔄")
+            .setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder()
+            .setCustomId("mp_btn_avatar_cancel")
+            .setLabel("إلغاء")
+            .setEmoji("❌")
+            .setStyle(ButtonStyle.Danger)
+        );
+
         await interaction.reply({
-          content: "🖼️ **أرسل رابط صورة/افتار البوتات الجديد (أو أرفق صورة) في الشات الآن (خلال 60 ثانية)...**",
-        });
-
-        const collector = interaction.channel.createMessageCollector({
-          filter: (m) =>
-            m.author.id === interaction.user.id &&
-            !looksLikeCommand(m.content, config.prefix),
-          max: 1,
-          time: 60000
-        });
-
-        collector.on("collect", async (msg) => {
-          const avatarUrl = msg.attachments.first()?.url || msg.content.trim();
-          let okCount = 0;
-          for (const client of clientsMap.values()) {
-            if (!client.user) continue;
-            try {
-              await client.user.setAvatar(avatarUrl);
-              okCount++;
-            } catch (err) { }
-          }
-          msg.reply(
-            okCount > 0
-              ? `🖼️ **تم تغيير صورة/افتار ${okCount} بوت بنجاح.**`
-              : "❌ **فشل تغيير الافتار - تأكد من أن الرابط صورة مباشرة صالحة.**"
-          ).catch(() => { });
-        });
-
-        collector.on("end", (collected, reason) => {
-          if (reason === "time" && collected.size === 0) {
-            interaction.followUp({ content: "⏳ **انتهى الوقت المحدد لإرسال الصورة.**", flags: MessageFlags.Ephemeral }).catch(() => { });
-          }
-        });
-        return;
-      }
-
-      // Direct Chat Collector for Server-Specific Avatar (Custom Bot Branding)
-      case "mp_server_avatar": {
-        await interaction.reply({
-          content: "✨ **Custom Bot Branding - افتار السيرفر الخاص:**\nأرسل رابط صورة البوتات الخاصة بهذا السيرفر (أو أرفق صورة) في الشات الآن (خلال 60 ثانية)...\n*(أو أرسل كلمة `حذف` للرجوع إلى صورة البوت الافتراضية)*",
-        });
-
-        const collector = interaction.channel.createMessageCollector({
-          filter: (m) =>
-            m.author.id === interaction.user.id &&
-            !looksLikeCommand(m.content, config.prefix),
-          max: 1,
-          time: 60000
-        });
-
-        collector.on("collect", async (msg) => {
-          const input = msg.attachments.first()?.url || msg.content.trim();
-          const isReset = input === "حذف" || input === "reset" || input === "افتراضي";
-          let okCount = 0;
-          let errCount = 0;
-          for (const c of clientsMap.values()) {
-            if (!c.user) continue;
-            if (!c.guilds?.cache?.has(interaction.guildId)) continue;
-            try {
-              await setGuildAvatar(c, interaction.guildId, isReset ? null : input);
-              okCount++;
-            } catch (err) {
-              errCount++;
-            }
-          }
-          msg.reply(
-            okCount > 0
-              ? (isReset
-                  ? `🔄 **تمت إعادة ضبط صورة ${okCount} بوت في هذا السيرفر إلى الصورة الافتراضية.**`
-                  : `✨ **تم تغيير صورة ${okCount} بوت في هذا السيرفر بنجاح! (Custom Branding)**`)
-              : `❌ **فشل تغيير صورة السيرفر - تأكد من صلاحيات البوت أو صحة رابط الصورة.**`
-          ).catch(() => { });
-        });
-
-        collector.on("end", (collected, reason) => {
-          if (reason === "time" && collected.size === 0) {
-            interaction.followUp({ content: "⏳ **انتهى الوقت المحدد لإرسال الصورة.**", flags: MessageFlags.Ephemeral }).catch(() => { });
-          }
+          content: "🖼️ **تحديد نوع تغيير افتار البوتات:**\nهل ترغب بتخصيص صورة خاصة بهذا السيرفر فقط (Custom Branding)، أم تغيير الصورة العامة لجميع السيرفرات؟",
+          components: [row]
         });
         return;
       }
