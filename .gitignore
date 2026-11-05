@@ -3,6 +3,8 @@ node_modules/
 
 # Environment secrets - NEVER COMMIT
 .env
+*.env
+render.env
 .env.local
 .env.*.local
 

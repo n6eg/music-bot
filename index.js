@@ -27,6 +27,18 @@ require("dotenv").config();
 const ffmpegPath = process.env.FFMPEG_BIN || require("ffmpeg-static");
 process.env.FFMPEG_PATH = ffmpegPath;
 
+// Lightweight health-check HTTP server for platforms like Render / Railway / Koyeb
+const http = require("http");
+if (process.env.PORT) {
+  const healthServer = http.createServer((req, res) => {
+    res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("Bot is alive and running!");
+  });
+  healthServer.listen(process.env.PORT, () => {
+    console.log(`🌐 HTTP health-check listening on port ${process.env.PORT} (Render Web Service ready)`);
+  });
+}
+
 const {
   Client,
   GatewayIntentBits,
