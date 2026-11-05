@@ -12,6 +12,7 @@ cookies.txt
 
 # Runtime config (contains owner IDs / server settings)
 config.json
+BOT_INFO.txt
 
 # IDE trash / temporary files
 .yzpzcode/trash/
