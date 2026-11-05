@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Environment secrets - NEVER COMMIT
+.env
+.env.local
+.env.*.local
+
+# YouTube session cookies - NEVER COMMIT (contains your login!)
+cookies.txt
+*.cookies.txt
+
+# Runtime config (contains owner IDs / server settings)
+config.json
+
+# IDE trash / temporary files
+.yzpzcode/trash/
+
+# Archives / build artifacts
+*.zip
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS junk
+.DS_Store
+Thumbs.db
