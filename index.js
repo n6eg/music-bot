@@ -43,6 +43,7 @@ process.env.FFMPEG_PATH = ffmpegPath;
 
 // Lightweight health-check HTTP server for platforms like Render / Railway / Koyeb
 const http = require("http");
+const https = require("https");
 if (process.env.PORT) {
   const healthServer = http.createServer((req, res) => {
     res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
@@ -51,6 +52,15 @@ if (process.env.PORT) {
   healthServer.listen(process.env.PORT, () => {
     console.log(`🌐 HTTP health-check listening on port ${process.env.PORT} (Render Web Service ready)`);
   });
+
+  // Keep-alive self-ping: Prevents Render free tier from sleeping (spins down after 15m)
+  const pingUrl = process.env.RENDER_EXTERNAL_URL || "https://music-rm9g.onrender.com";
+  setInterval(() => {
+    try {
+      const clientReq = (pingUrl.startsWith("https") ? https : http).get(pingUrl, () => {});
+      clientReq.on("error", () => {});
+    } catch (e) { }
+  }, 5 * 60 * 1000);
 }
 
 const {
