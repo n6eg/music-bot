@@ -19,8 +19,22 @@ if (nodeTooOld) {
   process.exit(1);
 }
 
-require("./yt-dlp-patch");
+const fs = require("fs");
+const path = require("path");
 require("dotenv").config();
+for (const p of [
+  path.join(__dirname, "render.env"),
+  "/etc/secrets/render.env",
+  "/etc/secrets/.env"
+]) {
+  try {
+    if (fs.existsSync(p)) {
+      require("dotenv").config({ path: p, override: true });
+    }
+  } catch (e) { }
+}
+
+require("./yt-dlp-patch");
 // Prefer the SYSTEM ffmpeg when FFMPEG_BIN is set. On bot.hosting/VPS the
 // bundled ffmpeg-static binary often segfaults (SIGSEGV) -> music shows
 // "playing" but no sound ever comes out. FFMPEG_BIN=/usr/bin/ffmpeg fixes it.
