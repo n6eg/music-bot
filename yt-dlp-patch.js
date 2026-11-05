@@ -33,15 +33,30 @@ try {
 
 // --- 2. Global extra-flags provider -----------------------------------------
 function detectCookiesFile() {
-  // Explicit env wins; otherwise auto-detect project-root cookies.txt.
+  // If cookies text is passed via environment variable, write it to file automatically
+  if (process.env.YTDLP_COOKIES_TEXT && !fs.existsSync(COOKIES_PATH)) {
+    try {
+      fs.writeFileSync(COOKIES_PATH, process.env.YTDLP_COOKIES_TEXT.trim(), "utf-8");
+      console.log("✅ [yt-dlp] Created cookies.txt from YTDLP_COOKIES_TEXT environment variable");
+      return COOKIES_PATH;
+    } catch (e) { }
+  }
+
+  // Explicit env wins; otherwise auto-detect project-root cookies.txt or Render secrets
   const explicit = process.env.YTDLP_COOKIES_FILE;
   if (explicit && explicit.trim()) return explicit.trim();
-  try {
-    if (fs.existsSync(COOKIES_PATH)) return COOKIES_PATH;
-    // Also accept cookies.txt in whatever directory the bot was started from.
-    const cwdCandidate = path.join(process.cwd(), "cookies.txt");
-    if (fs.existsSync(cwdCandidate)) return cwdCandidate;
-  } catch (e) { /* fs errors -> treat as missing */ }
+
+  const candidates = [
+    COOKIES_PATH,
+    path.join(process.cwd(), "cookies.txt"),
+    "/etc/secrets/cookies.txt"
+  ];
+
+  for (const c of candidates) {
+    try {
+      if (fs.existsSync(c)) return c;
+    } catch (e) { /* fs errors -> treat as missing */ }
+  }
   return null;
 }
 

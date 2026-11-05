@@ -296,6 +296,31 @@ async function handleCommand(message, client, distube, clientsMap) {
         }
         message.delete().catch(() => {});
       } catch (err) {
+        // If YouTube fails with bot-check, automatically fallback to SoundCloud so playback never stops!
+        if (isBotCheckError(err?.message) && executor._soundcloudPlugin && !/soundcloud\.com/i.test(playQuery)) {
+          try {
+            console.log(`[bot-check fallback] YouTube blocked. Trying SoundCloud for: ${originalQuery}`);
+            const scTracks = await executor._soundcloudPlugin.search(originalQuery, "track", 1);
+            if (Array.isArray(scTracks) && scTracks[0]?.url) {
+              const execTextChannel =
+                executor.channels?.cache?.get(message.channelId) || message.channel;
+              await execDistube.play(userVoiceChannel, scTracks[0].url, {
+                message,
+                textChannel: execTextChannel,
+                member: message.member
+              });
+              if (searchMsg && typeof searchMsg.delete === "function") {
+                searchMsg.delete().catch(() => {});
+              }
+              message.delete().catch(() => {});
+              replyMessage(message, "🔊 *(تم تشغيل الأغنية عبر ساوندكلاود لتجاوز حجب يوتيوب)*", config);
+              break;
+            }
+          } catch (scErr) {
+            console.error("[bot-check fallback] SoundCloud search failed:", scErr.message);
+          }
+        }
+
         if (searchMsg && typeof searchMsg.delete === "function") {
           searchMsg.delete().catch(() => {});
         }

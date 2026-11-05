@@ -147,7 +147,7 @@ function makeT(lang) {
 
 /** Detect YouTube "Sign in to confirm you're not a bot" style failures. */
 function isBotCheckError(msg) {
-  return /sign in to confirm|not a bot|please sign in/i.test(String(msg || ""));
+  return /sign in to confirm|not a bot|please sign in|bot-check/i.test(String(msg || ""));
 }
 
 module.exports = { makeT, isBotCheckError };
