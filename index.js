@@ -161,7 +161,18 @@ async function startBot(token, index) {
 
   const distube = new DisTube(client, {
     ffmpeg: {
-      path: ffmpegPath
+      path: ffmpegPath,
+      args: {
+        global: {
+          loglevel: "warning"
+        },
+        input: {
+          reconnect: 1,
+          reconnect_streamed: 1,
+          reconnect_delay_max: 5,
+          user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+      }
     },
     emitNewSongOnly: true,
     emitAddSongWhenCreatingQueue: false,
@@ -320,7 +331,18 @@ async function startBot(token, index) {
         });
         if (Array.isArray(info)) return; // playlist should never land here
         const freshUrl = info?.url;
-        if (!freshUrl) return;
+        if (!freshUrl) {
+          if (soundCloudPlugin) {
+            console.log(`[retry] No fresh YouTube URL. Falling back to SoundCloud for ${song.name}`);
+            const scSongs = await soundCloudPlugin.search(song.name, "track", 1).catch(() => null);
+            if (Array.isArray(scSongs) && scSongs[0]?.url) {
+              await q.play(scSongs[0].url, { skip: true });
+              queue.textChannel?.send(`🔊 **تم التحويل إلى ساوندكلاود لتشغيل الصوت بنجاح:** \`${song.name}\``).catch(() => {});
+              return;
+            }
+          }
+          return;
+        }
 
         // Patch the song's stream URL in place and restart playback.
         song.stream.url = freshUrl;
@@ -329,13 +351,24 @@ async function startBot(token, index) {
         console.log(`[retry] ${song.name}: stream re-resolved, restarting`);
       } catch (e) {
         console.error("[retry] failed to re-resolve:", e?.message);
+        if (soundCloudPlugin) {
+          try {
+            const scSongs = await soundCloudPlugin.search(song.name, "track", 1).catch(() => null);
+            if (Array.isArray(scSongs) && scSongs[0]?.url) {
+              const q = distube.getQueue(queue.id);
+              if (q) {
+                await q.play(scSongs[0].url, { skip: true });
+                queue.textChannel?.send(`🔊 **تم التحويل إلى ساوندكلاود لتشغيل الصوت بنجاح:** \`${song.name}\``).catch(() => {});
+              }
+            }
+          } catch (scErr) { }
+        }
       }
     }, 2500);
   }
 
   distube.on("ffmpegDebug", (msg) => {
-    // Only log the meaningful lines (spawn + exit) - avoids flooding.
-    if (/\[process\] (spawn|exit)/.test(String(msg))) console.log(msg);
+    console.log("[ffmpeg]", msg);
   });
 
   client.on("clientReady", async () => {
