@@ -33,6 +33,16 @@ try {
 
 // --- 2. Global extra-flags provider -----------------------------------------
 function detectCookiesFile() {
+  // If cookies are passed via BASE64 environment variable, decode and write automatically
+  if (process.env.YTDLP_COOKIES_BASE64 && !fs.existsSync(COOKIES_PATH)) {
+    try {
+      const decoded = Buffer.from(process.env.YTDLP_COOKIES_BASE64.trim(), "base64").toString("utf-8");
+      fs.writeFileSync(COOKIES_PATH, decoded, "utf-8");
+      console.log("✅ [yt-dlp] Created cookies.txt from YTDLP_COOKIES_BASE64");
+      return COOKIES_PATH;
+    } catch (e) { }
+  }
+
   // If cookies text is passed via environment variable, write it to file automatically
   if (process.env.YTDLP_COOKIES_TEXT && !fs.existsSync(COOKIES_PATH)) {
     try {
