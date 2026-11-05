@@ -35,7 +35,14 @@ const aliasMap = {
   // Spread aliases (owner): fill a range of voice rooms with free bots
   "spread": "spread", "توزيع": "spread", "fillrooms": "spread",
   // Chat clean commands
-  "clean": "clean", "مسح": "clean", "clear-chat": "clean", "cleanchat": "clean", "purge": "clean"
+  "clean": "clean", "مسح": "clean", "clear-chat": "clean", "cleanchat": "clean", "purge": "clean",
+  // Custom Bot Branding (Per-Server Avatar / الافتار المخصص لكل سيرفر)
+  "setserveravatar": "setserveravatar", "serveravatar": "setserveravatar",
+  "صورة-السيرفر": "setserveravatar", "افتار-السيرفر": "setserveravatar",
+  "براند": "setserveravatar", "branding": "setserveravatar",
+  "setserveravatarall": "serveravatarall", "serveravatarall": "serveravatarall",
+  "افتار-السيرفر-الكل": "serveravatarall", "صورة-السيرفر-الكل": "serveravatarall",
+  "resetserveravatar": "resetserveravatar", "حذف-صورة-السيرفر": "resetserveravatar"
 };
 
 /**
@@ -91,6 +98,110 @@ async function safeSetNickname(client, guildId, desiredName) {
   } catch (err) {
     return { ok: false, applied: null, error: err };
   }
+}
+
+// ---------------------------------------------------------------------
+// Custom Bot Branding (Per-Server Avatar / الافتار المخصص لكل سيرفر)
+// Allows each Discord server to display a unique avatar for the bots
+// via Discord API PATCH /guilds/{guild.id}/members/@me without altering
+// the bot's global avatar or affecting other servers.
+// ---------------------------------------------------------------------
+
+/**
+ * Convert an image URL, Buffer, or file path to a base64 Data URI string.
+ * @param {string|Buffer} input - Image URL, local file path, or Buffer
+ * @returns {Promise<string|null>}
+ */
+async function imageToDataUri(input) {
+  if (!input) return null;
+  if (typeof input === "string") {
+    const trimmed = input.trim();
+    if (trimmed.startsWith("data:image/")) return trimmed;
+
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+      const res = await fetch(trimmed);
+      if (!res.ok) {
+        throw new Error(`فشل تحميل الصورة من الرابط (HTTP ${res.status})`);
+      }
+      let mimeType = "image/png";
+      const contentType = res.headers.get("content-type");
+      if (contentType && contentType.toLowerCase().includes("image/")) {
+        mimeType = contentType.split(";")[0].trim().toLowerCase();
+      } else if (trimmed.match(/\.(jpe?g|png|gif|webp)(\?.*)?$/i)) {
+        const ext = trimmed.match(/\.(jpe?g|png|gif|webp)(\?.*)?$/i)[1].toLowerCase();
+        mimeType = ext === "jpg" ? "image/jpeg" : `image/${ext}`;
+      }
+      const arrayBuf = await res.arrayBuffer();
+      const base64 = Buffer.from(arrayBuf).toString("base64");
+      return `data:${mimeType};base64,${base64}`;
+    }
+
+    if (fs.existsSync(trimmed)) {
+      const buf = fs.readFileSync(trimmed);
+      let mimeType = "image/png";
+      if (trimmed.endsWith(".jpg") || trimmed.endsWith(".jpeg")) mimeType = "image/jpeg";
+      else if (trimmed.endsWith(".gif")) mimeType = "image/gif";
+      else if (trimmed.endsWith(".webp")) mimeType = "image/webp";
+      return `data:${mimeType};base64,${buf.toString("base64")}`;
+    }
+    throw new Error("رابط الصورة غير صالح أو الملف غير موجود");
+  }
+
+  if (Buffer.isBuffer(input)) {
+    return `data:image/png;base64,${input.toString("base64")}`;
+  }
+
+  throw new Error("صيغة الصورة غير مدعومة");
+}
+
+/**
+ * Set or reset a bot's per-server avatar (Guild Member Avatar).
+ * @param {import("discord.js").Client} client
+ * @param {string} guildId
+ * @param {string|Buffer|null} imageInput - image URL, local path, Buffer, or null/'reset' to remove
+ * @returns {Promise<any>}
+ */
+async function setGuildAvatar(client, guildId, imageInput) {
+  if (!client?.rest || !guildId) {
+    throw new Error("بيانات البوت أو معرف السيرفر غير متوفر");
+  }
+  const isReset = !imageInput || imageInput === "reset" || imageInput === "حذف" || imageInput === "افتراضي";
+  const dataUri = isReset ? null : await imageToDataUri(imageInput);
+
+  try {
+    return await client.rest.patch(`/guilds/${guildId}/members/@me`, {
+      body: { avatar: dataUri }
+    });
+  } catch (err) {
+    try {
+      const { Routes } = require("discord.js");
+      if (Routes.userGuildMember) {
+        return await client.rest.patch(Routes.userGuildMember(guildId), {
+          body: { avatar: dataUri }
+        });
+      }
+    } catch (_) { }
+    throw err;
+  }
+}
+
+/**
+ * Set or reset a bot's per-server banner (Guild Member Banner).
+ * @param {import("discord.js").Client} client
+ * @param {string} guildId
+ * @param {string|Buffer|null} imageInput
+ * @returns {Promise<any>}
+ */
+async function setGuildBanner(client, guildId, imageInput) {
+  if (!client?.rest || !guildId) {
+    throw new Error("بيانات البوت أو معرف السيرفر غير متوفر");
+  }
+  const isReset = !imageInput || imageInput === "reset" || imageInput === "حذف" || imageInput === "افتراضي";
+  const dataUri = isReset ? null : await imageToDataUri(imageInput);
+
+  return client.rest.patch(`/guilds/${guildId}/members/@me`, {
+    body: { banner: dataUri }
+  });
 }
 
 /**
@@ -284,6 +395,9 @@ module.exports = {
   sanitizeUsername,
   safeRename,
   safeSetNickname,
+  imageToDataUri,
+  setGuildAvatar,
+  setGuildBanner,
   getChannelForBot,
   formatDuration,
   ytSearch,

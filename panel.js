@@ -18,7 +18,7 @@ const {
   setBotChannel247,
   clearBotChannel247
 } = require("./config-store");
-const { looksLikeCommand, safeRename, getChannelForBot } = require("./helpers");
+const { looksLikeCommand, safeRename, getChannelForBot, setGuildAvatar } = require("./helpers");
 const {
   selfVoiceChannelId,
   buildRoomRange,
@@ -127,10 +127,16 @@ function createPanelComponents() {
         emoji: "👤"
       },
       {
-        label: "افتار البوتات",
-        description: ".تغير صورة البوتات.",
+        label: "افتار البوتات العام",
+        description: ".تغيير الصورة العامة لجميع البوتات في كل السيرفرات.",
         value: "mp_avatar",
-        emoji: "🖼️"
+        emoji: "🌐"
+      },
+      {
+        label: "صورة خاصة بهذا السيرفر (Custom Branding)",
+        description: ".تغيير صورة/افتار البوتات في هذا السيرفر فقط (كل سيرفر صورة).",
+        value: "mp_server_avatar",
+        emoji: "✨"
       },
       {
         label: "بنر البوتات",
@@ -323,7 +329,7 @@ async function handlePanelInteraction(interaction, clientsMap) {
     // and collector cases reply instantly - everything else is deferred right away
     // so slow handlers never hit Discord's 3-second interaction window.
     const modalCases = ["mp_number", "mp_game", "mp_status", "mp_server", "mp_edit_owner", "mp_give_role", "mp_lang", "mp_platform", "mp_prefix"];
-    const collectorCases = ["mp_name", "mp_avatar", "mp_banner"];
+    const collectorCases = ["mp_name", "mp_avatar", "mp_banner", "mp_server_avatar"];
     if (!modalCases.includes(selected) && !collectorCases.includes(selected)) {
       if (!(await ackEphemeral(interaction))) return;
     }
@@ -493,6 +499,52 @@ async function handlePanelInteraction(interaction, clientsMap) {
             okCount > 0
               ? `🖼️ **تم تغيير صورة/افتار ${okCount} بوت بنجاح.**`
               : "❌ **فشل تغيير الافتار - تأكد من أن الرابط صورة مباشرة صالحة.**"
+          ).catch(() => { });
+        });
+
+        collector.on("end", (collected, reason) => {
+          if (reason === "time" && collected.size === 0) {
+            interaction.followUp({ content: "⏳ **انتهى الوقت المحدد لإرسال الصورة.**", flags: MessageFlags.Ephemeral }).catch(() => { });
+          }
+        });
+        return;
+      }
+
+      // Direct Chat Collector for Server-Specific Avatar (Custom Bot Branding)
+      case "mp_server_avatar": {
+        await interaction.reply({
+          content: "✨ **Custom Bot Branding - افتار السيرفر الخاص:**\nأرسل رابط صورة البوتات الخاصة بهذا السيرفر (أو أرفق صورة) في الشات الآن (خلال 60 ثانية)...\n*(أو أرسل كلمة `حذف` للرجوع إلى صورة البوت الافتراضية)*",
+        });
+
+        const collector = interaction.channel.createMessageCollector({
+          filter: (m) =>
+            m.author.id === interaction.user.id &&
+            !looksLikeCommand(m.content, config.prefix),
+          max: 1,
+          time: 60000
+        });
+
+        collector.on("collect", async (msg) => {
+          const input = msg.attachments.first()?.url || msg.content.trim();
+          const isReset = input === "حذف" || input === "reset" || input === "افتراضي";
+          let okCount = 0;
+          let errCount = 0;
+          for (const c of clientsMap.values()) {
+            if (!c.user) continue;
+            if (!c.guilds?.cache?.has(interaction.guildId)) continue;
+            try {
+              await setGuildAvatar(c, interaction.guildId, isReset ? null : input);
+              okCount++;
+            } catch (err) {
+              errCount++;
+            }
+          }
+          msg.reply(
+            okCount > 0
+              ? (isReset
+                  ? `🔄 **تمت إعادة ضبط صورة ${okCount} بوت في هذا السيرفر إلى الصورة الافتراضية.**`
+                  : `✨ **تم تغيير صورة ${okCount} بوت في هذا السيرفر بنجاح! (Custom Branding)**`)
+              : `❌ **فشل تغيير صورة السيرفر - تأكد من صلاحيات البوت أو صحة رابط الصورة.**`
           ).catch(() => { });
         });
 
