@@ -481,14 +481,11 @@ async function startBot(token, index) {
     }
 
     // Only route panel-related interactions to the panel handler
-    const panelCustomIds = [
-      "mp_select_action",
-      "mp_select_category",
-      "mp_cancel"
-    ];
     const isPanelComponent =
-      panelCustomIds.includes(interaction.customId) ||
-      interaction.customId.startsWith("modal_");
+      typeof interaction.customId === "string" &&
+      (interaction.customId.startsWith("mp_") ||
+        interaction.customId.startsWith("mps_") ||
+        interaction.customId.startsWith("modal_"));
 
     if (!isPanelComponent) return;
 
