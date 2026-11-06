@@ -127,14 +127,14 @@ function createPanelComponents() {
         emoji: "👤"
       },
       {
-        label: "افتار البوتات",
-        description: ".تغيير صورة البوتات (عامة أو مخصصة لهذا السيرفر).",
+        label: "افتار البوتات (Custom Branding)",
+        description: ".تخصيص صورة للبوتات في هذا السيرفر فقط أو استعادتها.",
         value: "mp_avatar",
         emoji: "🖼️"
       },
       {
-        label: "بنر البوتات",
-        description: ".تغيير بنر البوتات (عام أو مخصص لهذا السيرفر).",
+        label: "بنر البوتات (Custom Branding)",
+        description: ".تخصيص بنر للبوتات في هذا السيرفر فقط أو استعادته.",
         value: "mp_banner",
         emoji: "🎨"
       },
@@ -648,11 +648,6 @@ async function handlePanelInteraction(interaction, clientsMap) {
             .setEmoji("✨")
             .setStyle(ButtonStyle.Primary),
           new ButtonBuilder()
-            .setCustomId("mp_btn_avatar_global")
-            .setLabel("صورة عامة لكل السيرفرات")
-            .setEmoji("🌐")
-            .setStyle(ButtonStyle.Secondary),
-          new ButtonBuilder()
             .setCustomId("mp_btn_avatar_reset")
             .setLabel("استعادة الصورة الأصلية للسيرفر")
             .setEmoji("🔄")
@@ -665,13 +660,13 @@ async function handlePanelInteraction(interaction, clientsMap) {
         );
 
         await interaction.reply({
-          content: "🖼️ **تحديد نوع تغيير افتار البوتات:**\nهل ترغب بتخصيص صورة خاصة بهذا السيرفر فقط (Custom Branding)، أم تغيير الصورة العامة لجميع السيرفرات؟",
+          content: "🖼️ **تغيير افتار البوتات بهذا السيرفر (Custom Branding):**\nاضغط على **صورة مخصصة** لتعيين صورة للبوتات في هذا السيرفر فقط، أو **استعادة** للرجوع للصورة الافتراضية.",
           components: [row]
         });
         return;
       }
 
-      // Direct Selection for Banner (Custom Branding per server vs Global)
+      // Direct Selection for Banner (Custom Branding per server)
       case "mp_banner": {
         const row = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
@@ -679,11 +674,6 @@ async function handlePanelInteraction(interaction, clientsMap) {
             .setLabel("بنر مخصص لهذا السيرفر (Custom Branding)")
             .setEmoji("✨")
             .setStyle(ButtonStyle.Primary),
-          new ButtonBuilder()
-            .setCustomId("mp_btn_banner_global")
-            .setLabel("بنر عام لكل السيرفرات")
-            .setEmoji("🌐")
-            .setStyle(ButtonStyle.Secondary),
           new ButtonBuilder()
             .setCustomId("mp_btn_banner_reset")
             .setLabel("استعادة البنر الأصلي للسيرفر")
@@ -697,7 +687,7 @@ async function handlePanelInteraction(interaction, clientsMap) {
         );
 
         await interaction.reply({
-          content: "🎨 **تحديد نوع تغيير بنر البوتات:**\nهل ترغب بتخصيص بنر خاص بهذا السيرفر فقط (Custom Branding)، أم تغيير البنر العام لجميع السيرفرات؟",
+          content: "🎨 **تغيير بنر البوتات بهذا السيرفر (Custom Branding):**\nاضغط على **بنر مخصص** لتعيين بنر للبوتات في هذا السيرفر فقط، أو **استعادة** للرجوع للبنر الافتراضي.",
           components: [row]
         });
         return;
