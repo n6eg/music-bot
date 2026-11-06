@@ -42,7 +42,15 @@ const aliasMap = {
   "براند": "setserveravatar", "branding": "setserveravatar",
   "setserveravatarall": "serveravatarall", "serveravatarall": "serveravatarall",
   "افتار-السيرفر-الكل": "serveravatarall", "صورة-السيرفر-الكل": "serveravatarall",
-  "resetserveravatar": "resetserveravatar", "حذف-صورة-السيرفر": "resetserveravatar"
+  "resetserveravatar": "resetserveravatar", "حذف-صورة-السيرفر": "resetserveravatar",
+  // Custom Bot Branding (Per-Server Banner / البنر المخصص لكل سيرفر)
+  "setbanner": "setbanner", "banner": "setbanner", "بنر": "setbanner",
+  "setserverbanner": "setserverbanner", "serverbanner": "setserverbanner",
+  "بنر-السيرفر": "setserverbanner",
+  "setserverbannerall": "serverbannerall", "serverbannerall": "serverbannerall",
+  "بنر-السيرفر-الكل": "serverbannerall",
+  "bannerall": "bannerall", "بنر-الكل": "bannerall",
+  "resetserverbanner": "resetserverbanner", "حذف-بنر-السيرفر": "resetserverbanner"
 };
 
 /**
@@ -199,9 +207,21 @@ async function setGuildBanner(client, guildId, imageInput) {
   const isReset = !imageInput || imageInput === "reset" || imageInput === "حذف" || imageInput === "افتراضي";
   const dataUri = isReset ? null : await imageToDataUri(imageInput);
 
-  return client.rest.patch(`/guilds/${guildId}/members/@me`, {
-    body: { banner: dataUri }
-  });
+  try {
+    return await client.rest.patch(`/guilds/${guildId}/members/@me`, {
+      body: { banner: dataUri }
+    });
+  } catch (err) {
+    try {
+      const { Routes } = require("discord.js");
+      if (Routes.userGuildMember) {
+        return await client.rest.patch(Routes.userGuildMember(guildId), {
+          body: { banner: dataUri }
+        });
+      }
+    } catch (_) { }
+    throw err;
+  }
 }
 
 /**

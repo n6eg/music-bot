@@ -18,7 +18,7 @@ const {
   setBotChannel247,
   clearBotChannel247
 } = require("./config-store");
-const { looksLikeCommand, safeRename, getChannelForBot, setGuildAvatar } = require("./helpers");
+const { looksLikeCommand, safeRename, getChannelForBot, setGuildAvatar, setGuildBanner } = require("./helpers");
 const {
   selfVoiceChannelId,
   buildRoomRange,
@@ -134,7 +134,7 @@ function createPanelComponents() {
       },
       {
         label: "بنر البوتات",
-        description: ".تغير خلفية البوتات.",
+        description: ".تغيير بنر البوتات (عام أو مخصص لهذا السيرفر).",
         value: "mp_banner",
         emoji: "🎨"
       },
@@ -344,6 +344,93 @@ async function handlePanelInteraction(interaction, clientsMap) {
     collector.on("end", (collected, reason) => {
       if (reason === "time" && collected.size === 0) {
         interaction.followUp({ content: "⏳ **انتهى الوقت المحدد لإرسال الصورة.**", flags: MessageFlags.Ephemeral }).catch(() => { });
+      }
+    });
+    return;
+  }
+
+  // Handle Banner Selection Buttons
+  if (interaction.isButton() && interaction.customId.startsWith("mp_btn_banner_")) {
+    const action = interaction.customId.replace("mp_btn_banner_", "");
+    if (action === "cancel") {
+      return interaction.update({
+        content: "❌ **تم إلغاء عملية تغيير البنر.**",
+        components: []
+      }).catch(() => { });
+    }
+
+    if (action === "reset") {
+      let okCount = 0;
+      for (const c of clientsMap.values()) {
+        if (!c.user || !c.guilds?.cache?.has(interaction.guildId)) continue;
+        try {
+          await setGuildBanner(c, interaction.guildId, null);
+          okCount++;
+        } catch (_) { }
+      }
+      return interaction.update({
+        content: `🔄 **تمت إعادة ضبط بنر ${okCount} بوت في هذا السيرفر إلى البنر الافتراضي بنجاح.**`,
+        components: []
+      }).catch(() => { });
+    }
+
+    const isServer = action === "server";
+    await interaction.update({
+      content: isServer
+        ? "✨ **Custom Bot Branding - بنر خاص بهذا السيرفر:**\nأرسل رابط صورة البنر الخاصة بهذا السيرفر (أو أرفق صورة) في الشات الآن (خلال 60 ثانية)..."
+        : "🌐 **تغيير البنر العام لجميع البوتات (Global Banner):**\nأرسل رابط صورة/بنر البوتات الجديد (أو أرفق صورة) في الشات الآن (خلال 60 ثانية)...",
+      components: []
+    }).catch(() => { });
+
+    const collector = interaction.channel.createMessageCollector({
+      filter: (m) =>
+        m.author.id === interaction.user.id &&
+        !looksLikeCommand(m.content, config.prefix),
+      max: 1,
+      time: 60000
+    });
+
+    collector.on("collect", async (msg) => {
+      const input = msg.attachments.first()?.url || msg.content.trim();
+      let okCount = 0;
+      let errCount = 0;
+
+      if (isServer) {
+        for (const c of clientsMap.values()) {
+          if (!c.user || !c.guilds?.cache?.has(interaction.guildId)) continue;
+          try {
+            await setGuildBanner(c, interaction.guildId, input);
+            okCount++;
+          } catch (err) {
+            errCount++;
+          }
+        }
+        msg.reply(
+          okCount > 0
+            ? `✨ **تم تغيير بنر ${okCount} بوت في هذا السيرفر بنجاح! (Custom Branding)**`
+            : "❌ **فشل تغيير بنر السيرفر - تأكد من صحة رابط الصورة وصلاحيات البوت.**"
+        ).catch(() => { });
+      } else {
+        for (const c of clientsMap.values()) {
+          if (!c.user?.setBanner) continue;
+          try {
+            await c.user.setBanner(input);
+            okCount++;
+          } catch (err) {
+            errCount++;
+          }
+        }
+        msg.reply(
+          okCount > 0
+            ? `🌐 **تم تغيير البنر العام لـ ${okCount} بوت بنجاح.**`
+            : "❌ **فشل تغيير البنر العام - تأكد من أن الرابط صورة مباشرة صالحة.**"
+        ).catch(() => { });
+      }
+    });
+
+    collector.on("end", (collected, reason) => {
+      if (reason === "time" && collected.size === 0) {
+        interaction.followUp({ content: "⏳ **انتهى الوقت المحدد لإرسال البنر.**", flags: MessageFlags.Ephemeral }).catch(() => { });
       }
     });
     return;
@@ -584,41 +671,34 @@ async function handlePanelInteraction(interaction, clientsMap) {
         return;
       }
 
-      // Direct Chat Collector for Banner
+      // Direct Selection for Banner (Custom Branding per server vs Global)
       case "mp_banner": {
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId("mp_btn_banner_server")
+            .setLabel("بنر مخصص لهذا السيرفر (Custom Branding)")
+            .setEmoji("✨")
+            .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId("mp_btn_banner_global")
+            .setLabel("بنر عام لكل السيرفرات")
+            .setEmoji("🌐")
+            .setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder()
+            .setCustomId("mp_btn_banner_reset")
+            .setLabel("استعادة البنر الأصلي للسيرفر")
+            .setEmoji("🔄")
+            .setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder()
+            .setCustomId("mp_btn_banner_cancel")
+            .setLabel("إلغاء")
+            .setEmoji("❌")
+            .setStyle(ButtonStyle.Danger)
+        );
+
         await interaction.reply({
-          content: "🎨 **أرسل رابط بنر البوتات الجديد (أو أرفق صورة) في الشات الآن (خلال 60 ثانية)...**",
-        });
-
-        const collector = interaction.channel.createMessageCollector({
-          filter: (m) =>
-            m.author.id === interaction.user.id &&
-            !looksLikeCommand(m.content, config.prefix),
-          max: 1,
-          time: 60000
-        });
-
-        collector.on("collect", async (msg) => {
-          const bannerUrl = msg.attachments.first()?.url || msg.content.trim();
-          let okCount = 0;
-          for (const client of clientsMap.values()) {
-            if (!client.user?.setBanner) continue;
-            try {
-              await client.user.setBanner(bannerUrl);
-              okCount++;
-            } catch (err) { }
-          }
-          msg.reply(
-            okCount > 0
-              ? `🎨 **تم تغيير بنر ${okCount} بوت بنجاح.**`
-              : "❌ **فشل تغيير البنر - تأكد من أن الرابط صورة مباشرة صالحة.**"
-          ).catch(() => { });
-        });
-
-        collector.on("end", (collected, reason) => {
-          if (reason === "time" && collected.size === 0) {
-            interaction.followUp({ content: "⏳ **انتهى الوقت المحدد لإرسال البنر.**", flags: MessageFlags.Ephemeral }).catch(() => { });
-          }
+          content: "🎨 **تحديد نوع تغيير بنر البوتات:**\nهل ترغب بتخصيص بنر خاص بهذا السيرفر فقط (Custom Branding)، أم تغيير البنر العام لجميع السيرفرات؟",
+          components: [row]
         });
         return;
       }

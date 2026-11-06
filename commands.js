@@ -10,7 +10,7 @@ const {
   clearBotChannel247
 } = require("./config-store");
 const { suppressReconnect } = require("./voice-guard");
-const { aliasMap, safeSetNickname, setGuildAvatar, getChannelForBot, formatDuration, ytSearch, resolveQueryToUrl } = require("./helpers");
+const { aliasMap, safeSetNickname, setGuildAvatar, setGuildBanner, getChannelForBot, formatDuration, ytSearch, resolveQueryToUrl } = require("./helpers");
 const { selfVoiceChannelId, buildRoomRange, collectSpreadStats, formatCensus, buildSpreadComponents, SPREAD_PROMPT_TEXT, executeSpread, formatSpreadResult } = require("./spread");
 const { makeT, isBotCheckError } = require("./i18n");
 
@@ -752,6 +752,51 @@ async function handleCommand(message, client, distube, clientsMap) {
       break;
     }
 
+    case "setbanner": {
+      if (!isOwner(message.author.id, config)) return replyMessage(message, "❌ **هذا الأمر للأونر فقط!**", config);
+      const identityTarget = pickIdentityTarget(targetedBotIds, runningBots, client);
+      const url = args[0] || message.attachments.first()?.url;
+      if (!url) return replyMessage(message, "❌ **يرجى وضع رابط البنر أو إرفاقه مع الرسالة.**", config);
+      if (!identityTarget.user.setBanner) return replyMessage(message, "❌ **هذا البوت لا يدعم تعيين البنر العام مباشرة.**", config);
+      identityTarget.user.setBanner(url).then(() => {
+        replyMessage(message, `✅ **تم تغيير البنر العام للبوت \`${identityTarget.user.username}\` بنجاح!**`, config);
+      }).catch(err => replyMessage(message, `❌ **خطأ في تغيير البنر للبوت \`${identityTarget.user.username}\`:** ${err.message}`, config));
+      break;
+    }
+
+    case "setserverbanner": {
+      if (!isOwner(message.author.id, config)) return replyMessage(message, "❌ **هذا الأمر للأونر فقط!**", config);
+      const identityTarget = pickIdentityTarget(targetedBotIds, runningBots, client);
+      const firstArg = String(args[0] || "").toLowerCase();
+      const isReset = firstArg === "reset" || firstArg === "حذف" || firstArg === "افتراضي";
+      const url = isReset ? null : (args[0] || message.attachments.first()?.url);
+      if (!url && !isReset) {
+        return replyMessage(message, "❌ **يرجى إرفاق صورة أو وضع رابط البنر المباشر (أو كتابة `حذف` للرجوع للبنر الافتراضي).**\n💡 مثال: `-setserverbanner https://...` أو إرفاق صورة مع الأمر.", config);
+      }
+
+      setGuildBanner(identityTarget, message.guildId, url).then(() => {
+        if (isReset) {
+          replyMessage(message, `🔄 **تمت إعادة ضبط بنر البوت \`${identityTarget.user.username}\` في هذا السيرفر إلى البنر الافتراضي.**`, config);
+        } else {
+          replyMessage(message, `✨ **تم تغيير بنر البوت \`${identityTarget.user.username}\` الخاص بهذا السيرفر بنجاح! (Custom Bot Branding)**`, config);
+        }
+      }).catch(err => {
+        replyMessage(message, `❌ **خطأ في تغيير بنر البوت في هذا السيرفر:** ${err.message}`, config);
+      });
+      break;
+    }
+
+    case "resetserverbanner": {
+      if (!isOwner(message.author.id, config)) return replyMessage(message, "❌ **هذا الأمر للأونر فقط!**", config);
+      const identityTarget = pickIdentityTarget(targetedBotIds, runningBots, client);
+      setGuildBanner(identityTarget, message.guildId, null).then(() => {
+        replyMessage(message, `🔄 **تمت إعادة ضبط بنر البوت \`${identityTarget.user.username}\` في هذا السيرفر إلى البنر الافتراضي.**`, config);
+      }).catch(err => {
+        replyMessage(message, `❌ **خطأ في إعادة ضبط البنر:** ${err.message}`, config);
+      });
+      break;
+    }
+
     case "setgame": {
       if (!isOwner(message.author.id, config)) return replyMessage(message, "❌ **هذا الأمر للأونر فقط!**", config);
       const identityTarget = pickIdentityTarget(targetedBotIds, runningBots, client);
@@ -999,6 +1044,45 @@ async function handleCommand(message, client, distube, clientsMap) {
       const outcome = isReset
         ? `🔄 **تمت إعادة ضبط صورة ${okCount} بوت في هذا السيرفر للصورة الافتراضية.**`
         : `✨ **تم تغيير صورة ${okCount} بوت في هذا السيرفر بنجاح! (Custom Bot Branding)**`;
+      replyMessage(message, outcome, config);
+      break;
+    }
+
+    case "bannerall": {
+      if (!isOwner(message.author.id, config)) return replyMessage(message, "❌ **هذا الأمر للأونر فقط!**", config);
+      const url = args[0] || message.attachments.first()?.url;
+      if (!url) return replyMessage(message, "❌ **يرجى كتابة رابط البنر المباشر أو إرفاقه.**", config);
+      clientsMap.forEach(c => {
+        if (c.user?.setBanner) c.user.setBanner(url).catch(() => { });
+      });
+      replyMessage(message, "🎨 **تم طلب تغيير بنر جميع البوتات بنجاح.**", config);
+      break;
+    }
+
+    case "serverbannerall": {
+      if (!isOwner(message.author.id, config)) return replyMessage(message, "❌ **هذا الأمر للأونر فقط!**", config);
+      const firstArg = String(args[0] || "").toLowerCase();
+      const isReset = firstArg === "reset" || firstArg === "حذف" || firstArg === "افتراضي";
+      const url = isReset ? null : (args[0] || message.attachments.first()?.url);
+      if (!url && !isReset) {
+        return replyMessage(message, "❌ **يرجى إرفاق صورة أو كتابة رابط البنر المباشر (أو كتابة `حذف` للرجوع للأصل).**", config);
+      }
+
+      let okCount = 0;
+      let errCount = 0;
+      for (const c of clientsMap.values()) {
+        if (!c.user) continue;
+        if (!c.guilds?.cache?.has(message.guildId)) continue;
+        try {
+          await setGuildBanner(c, message.guildId, url);
+          okCount++;
+        } catch (e) {
+          errCount++;
+        }
+      }
+      const outcome = isReset
+        ? `🔄 **تمت إعادة ضبط بنر ${okCount} بوت في هذا السيرفر للبنر الافتراضي.**`
+        : `✨ **تم تغيير بنر ${okCount} بوت في هذا السيرفر بنجاح! (Custom Bot Branding)**`;
       replyMessage(message, outcome, config);
       break;
     }
