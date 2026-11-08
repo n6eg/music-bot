@@ -129,12 +129,22 @@ if (botTokens.length === 0) {
 
 // Global safety net: never print raw tokens in uncaught errors
 process.on("unhandledRejection", (err) => {
-  console.error("❌ Unhandled rejection:", redact(err?.message || err));
+  const msg = err?.message || String(err);
+  if (msg.includes("handshake has timed out") || err?.code === "ETIMEDOUT" || err?.code === "ECONNRESET" || err?.code === "UND_ERR_CONNECT_TIMEOUT") {
+    console.warn("⚠️ [Network] Handshake timeout / connection hiccup. Discord client is auto-reconnecting...");
+    return;
+  }
+  console.error("❌ Unhandled rejection:", redact(msg));
 });
 process.on("uncaughtException", (err) => {
+  const msg = err?.message || String(err);
+  if (msg.includes("handshake has timed out") || err?.code === "ETIMEDOUT" || err?.code === "ECONNRESET" || err?.code === "UND_ERR_CONNECT_TIMEOUT") {
+    console.warn("⚠️ [Network] WebSocket opening handshake timed out. Discord client is auto-reconnecting...");
+    return;
+  }
   // Log with stack for diagnosability. The process intentionally stays alive
   // so one bad event doesn't kill the whole multi-bot fleet.
-  console.error("❌ Uncaught exception:", redact(err?.stack || err?.message || err));
+  console.error("❌ Uncaught exception:", redact(err?.stack || msg));
 });
 
 async function startBot(token, index) {
@@ -371,6 +381,36 @@ async function startBot(token, index) {
     console.log("[ffmpeg]", msg);
   });
 
+  client.on("error", (err) => {
+    const msg = err?.message || String(err);
+    if (msg.includes("handshake has timed out") || err?.code === "ETIMEDOUT" || err?.code === "ECONNRESET") {
+      console.warn(`⚠️ [Bot #${index + 1}] Network hiccup (${msg}). Discord client will auto-reconnect.`);
+      return;
+    }
+    console.error(`❌ [Bot #${index + 1}] Client error:`, redact(msg));
+  });
+
+  client.on("shardError", (err, shardId) => {
+    const msg = err?.message || String(err);
+    if (msg.includes("handshake has timed out") || err?.code === "ETIMEDOUT" || err?.code === "ECONNRESET") {
+      console.warn(`⚠️ [Bot #${index + 1}] Shard #${shardId} handshake timeout. Auto-reconnecting...`);
+      return;
+    }
+    console.error(`❌ [Bot #${index + 1}] Shard #${shardId} error:`, redact(msg));
+  });
+
+  client.on("shardDisconnect", (event, shardId) => {
+    console.warn(`⚠️ [Bot #${index + 1}] Shard #${shardId} disconnected (code ${event?.code || "unknown"}). Waiting to reconnect...`);
+  });
+
+  client.on("shardReconnecting", (shardId) => {
+    console.log(`🔄 [Bot #${index + 1}] Shard #${shardId} reconnecting...`);
+  });
+
+  client.on("shardResume", (shardId, replayedEvents) => {
+    console.log(`✅ [Bot #${index + 1}] Shard #${shardId} connection resumed (${replayedEvents} events replayed).`);
+  });
+
   client.on("clientReady", async () => {
     console.log(`✅ [Bot #${index + 1}] Connected as: ${client.user.tag}`);
     client.user.setActivity("@ws.", { type: 0 });
@@ -508,16 +548,25 @@ async function startBot(token, index) {
     );
   });
 
-  try {
-    await client.login(token);
-    // Key by bot user ID (not the raw token) and stash the token/index on the
-    // client so `12restart` can relaunch exactly this bot later.
-    client._token = token;
-    client._index = index;
-    clientsMap.set(client.user.id, client);
-  } catch (err) {
-    console.error(`❌ Failed to login Bot #${index + 1}: ${redact(err.message)}`);
+  async function attemptLogin(retries = 5, delay = 5000) {
+    try {
+      await client.login(token);
+      // Key by bot user ID (not the raw token) and stash the token/index on the
+      // client so `12restart` can relaunch exactly this bot later.
+      client._token = token;
+      client._index = index;
+      clientsMap.set(client.user.id, client);
+    } catch (err) {
+      const msg = err?.message || String(err);
+      console.error(`❌ Failed to login Bot #${index + 1}: ${redact(msg)}`);
+      if (retries > 0 && (msg.includes("handshake has timed out") || err?.code === "ETIMEDOUT" || err?.code === "ECONNRESET")) {
+        console.log(`🔄 [Bot #${index + 1}] Retrying login in ${delay / 1000}s (${retries} retries left)...`);
+        setTimeout(() => attemptLogin(retries - 1, Math.min(delay * 1.5, 30000)), delay);
+      }
+    }
   }
+
+  attemptLogin();
 }
 
 // Launch all configured bots (tokens come from .env only)
