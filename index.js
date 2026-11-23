@@ -54,13 +54,20 @@ if (process.env.PORT) {
   });
 
   // Keep-alive self-ping: Prevents Render free tier from sleeping (spins down after 15m)
-  const pingUrl = process.env.RENDER_EXTERNAL_URL || "https://music-rm9g.onrender.com";
-  setInterval(() => {
-    try {
-      const clientReq = (pingUrl.startsWith("https") ? https : http).get(pingUrl, () => {});
-      clientReq.on("error", () => {});
-    } catch (e) { }
-  }, 5 * 60 * 1000);
+  // Render injects RENDER_EXTERNAL_URL automatically for web services.
+  const pingUrl = process.env.RENDER_EXTERNAL_URL;
+  if (!pingUrl) {
+    console.warn("⚠️ RENDER_EXTERNAL_URL is not set - free-tier keep-alive ping disabled.");
+  } else {
+    console.log(`💓 Keep-alive ping -> ${pingUrl}`);
+    const pingTimer = setInterval(() => {
+      try {
+        const clientReq = (pingUrl.startsWith("https") ? https : http).get(pingUrl, () => {});
+        clientReq.on("error", () => {});
+      } catch (e) { }
+    }, 5 * 60 * 1000);
+    if (typeof pingTimer.unref === "function") pingTimer.unref();
+  }
 }
 
 const {
@@ -82,6 +89,19 @@ const { handlePanelInteraction } = require("./panel");
 const { getConfig, saveConfig, getBotChannel247 } = require("./config-store");
 const { attachVoiceGuard } = require("./voice-guard");
 const { makeT, isBotCheckError } = require("./i18n");
+
+// Opus encoder sanity check. @discordjs/opus only ships prebuilds up to a few
+// Node ABIs; on newer Node (e.g. v26) it fails to load and prism-media falls
+// back to `opusscript`. If neither is installed, voice silently produces no
+// audio - check it once at startup instead of leaving users guessing.
+try {
+  const { opus } = require("prism-media");
+  new opus.Encoder({ rate: 48000, channels: 2, frameSize: 960 });
+  console.log("✅ [opus] audio encoder ready");
+} catch (e) {
+  console.error("❌ [opus] No Opus encoder available - songs will NOT play!");
+  console.error("   Fix: npm install opusscript   (or run the bot on Node 22 LTS)");
+}
 
 // Load optional yt-dlp plugin safely
 let YtDlpPlugin = null;
@@ -166,7 +186,11 @@ async function startBot(token, index) {
   ];
 
   if (YtDlpPlugin) {
-    plugins.push(new YtDlpPlugin());
+    // update:false - the plugin downloads yt-dlp on every construction by
+    // default. With 4 bots starting at once that means 4 concurrent writes to
+    // the same binary -> EBUSY -> broken YouTube playback. Our own scheduler in
+    // yt-dlp-patch.js already keeps the binary fresh.
+    plugins.push(new YtDlpPlugin({ update: false }));
   }
 
   const distube = new DisTube(client, {
@@ -207,6 +231,7 @@ async function startBot(token, index) {
   let _retryStreams = new Map(); // guildId -> { songId, attempts, timer }
 
   distube.on("playSong", (queue, song) => {
+    console.log(`[playSong] ${client.user?.tag} | guild ${queue.id} | ${song.name}`);
     // Reset retry state for this song so we never retry twice on one track.
     const prev = _retryStreams.get(queue.id);
     if (prev && prev.timer) clearTimeout(prev.timer);
@@ -274,7 +299,12 @@ async function startBot(token, index) {
       // Defensive: support both emitted shapes - (error, queue) and
       // (textChannel/queue, error). Never crash on reporting an error.
       err = args.find((a) => a instanceof Error) || null;
-      const carrier = args.find((a) => a && typeof a === "object" && !Array.isArray(a));
+      // Skip the Error object itself - the queue/textChannel is passed as the
+      // SECOND argument. Without this filter no playback error ever reaches
+      // Discord, so users only saw "searching..." and then silence.
+      const carrier = args.find(
+        (a) => a && typeof a === "object" && !(a instanceof Error) && !Array.isArray(a)
+      );
       const textChan =
         carrier?.textChannel && typeof carrier.textChannel.send === "function"
           ? carrier.textChannel

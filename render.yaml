@@ -1,0 +1,34 @@
+# Render Blueprint - deploy this bot as a Web Service.
+# After pushing to GitHub: Render Dashboard -> New -> Blueprint Instance ->
+# select this repository. Fill the sync:false values with the contents of
+# render.env (tokens, owner id, cookies base64).
+services:
+  - type: web
+    name: dule-music-bot
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm install
+    startCommand: node index.js
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: 22.12.0
+      - key: NODE_ENV
+        value: production
+      - key: OWNER_IDS
+        sync: false
+      - key: DISCORD_TOKEN_1
+        sync: false
+      - key: DISCORD_TOKEN_2
+        sync: false
+      - key: DISCORD_TOKEN_3
+        sync: false
+      - key: DISCORD_TOKEN_4
+        sync: false
+      - key: YTDLP_COOKIES_BASE64
+        sync: false
+      - key: YTDLP_FALLBACK_CLIENTS
+        value: tv,web_safari,mweb,ios
+      - key: VOICE_RECONNECT_DELAY_MS
+        value: 5000

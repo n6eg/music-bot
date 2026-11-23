@@ -284,11 +284,17 @@ async function handleCommand(message, client, distube, clientsMap) {
         // announcements are sent by the bot that actually plays the song.
         const execTextChannel =
           executor.channels?.cache?.get(message.channelId) || message.channel;
+        console.log(
+          `[play] cmd="${originalQuery}" -> "${playQuery}" | executor=${executor.user?.tag}` +
+          ` | guild=${message.guildId} | voice=${userVoiceChannel?.id}` +
+          ` | botsInGuild=${runningBots.length}`
+        );
         await execDistube.play(userVoiceChannel, playQuery, {
           message,
           textChannel: execTextChannel,
           member: message.member
         });
+        console.log(`[play] distube.play resolved for "${originalQuery}"`);
 
         // Automatically clean up search and command messages so chat stays clean
         if (searchMsg && typeof searchMsg.delete === "function") {
