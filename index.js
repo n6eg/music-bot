@@ -51,12 +51,26 @@ const execFileAsync = promisify(execFile);
 // Guarded audio pipeline self-test. Render free plan has no SSH/one-off jobs,
 // so this is the only way to verify yt-dlp + cookies + ffmpeg + Opus end to end
 // on the deployed host. Disabled unless DIAG_TOKEN is configured.
-async function runAudioDiag(client, noCookies) {
+async function runAudioDiag(client, noCookies, source) {
   const path2 = require("path");
   const { json: ytdlpJson } = require("@distube/yt-dlp");
   const extra = (globalThis.__ytdlpExtraFlags ? globalThis.__ytdlpExtraFlags() : {}) || {};
 
   const url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+  let meta = null;
+  let streamUrl = null;
+  let title = null;
+
+  if (source === "soundcloud") {
+    const { SoundCloudPlugin, SearchType } = require("@distube/soundcloud");
+    const sc = new SoundCloudPlugin();
+    const tracks = await sc.search("rick astley never gonna give you up", SearchType.Track, 1);
+    if (!tracks || !tracks[0]) throw new Error("SoundCloud search returned no tracks");
+    const song = tracks[0];
+    title = song.name || song.song?.title || "SoundCloud track";
+    streamUrl = await sc.getStreamURL(song);
+    if (!streamUrl) throw new Error("SoundCloud returned no stream URL");
+  } else {
   if (client) {
     // Probe a specific player client (and optionally no cookies) to find a
     // combination that works from this hosting IP.
@@ -74,21 +88,23 @@ async function runAudioDiag(client, noCookies) {
     }
   }
 
-  // Use the SAME patched json() that real playback uses, including the
-  // automatic fallback to tv/web_safari/mweb/ios clients on bot-check.
-  const meta = await ytdlpJson(url, {
-    dumpSingleJson: true,
-    noWarnings: true,
-    skipDownload: true,
-    simulate: true,
-    format: "ba/ba*"
-  });
-  if (!meta || (meta.title === undefined && meta.id === undefined)) throw new Error("yt-dlp returned no metadata");
+    // Use the SAME patched json() that real playback uses, including the
+    // automatic fallback to tv/web_safari/mweb/ios clients on bot-check.
+    meta = await ytdlpJson(url, {
+      dumpSingleJson: true,
+      noWarnings: true,
+      skipDownload: true,
+      simulate: true,
+      format: "ba/ba*"
+    });
+    if (!meta || (meta.title === undefined && meta.id === undefined)) throw new Error("yt-dlp returned no metadata");
+    title = meta.title;
 
-  const best = (meta.formats || []).filter(f => f.url && (f.acodec !== "none" || f.vcodec === "none"))
-    .sort((a, b) => (b.tbr || 0) - (a.tbr || 0))[0];
-  const streamUrl = (best && best.url) || meta.url;
-  if (!streamUrl) throw new Error("no playable stream URL found");
+    const best = (meta.formats || []).filter(f => f.url && (f.acodec !== "none" || f.vcodec === "none"))
+      .sort((a, b) => (b.tbr || 0) - (a.tbr || 0))[0];
+    streamUrl = (best && best.url) || meta.url;
+    if (!streamUrl) throw new Error("no playable stream URL found");
+  }
 
   const ffmpeg = process.env.FFMPEG_PATH || ffmpegPath;
   const pcm = await execFileAsync(
@@ -108,7 +124,8 @@ async function runAudioDiag(client, noCookies) {
   });
   return {
     ok: true,
-    title: meta.title,
+    source: source || "youtube",
+    title,
     cookies: extra.cookies ? path2.basename(extra.cookies) : null,
     pcmBytes: pcm.stdout.length,
     opusBytes: opusBuf.length
@@ -124,7 +141,11 @@ if (process.env.PORT) {
         return;
       }
       const u = new URL(req.url, "http://localhost");
-      runAudioDiag(u.searchParams.get("client"), u.searchParams.get("nocookies") === "1")
+      runAudioDiag(
+        u.searchParams.get("client"),
+        u.searchParams.get("nocookies") === "1",
+        u.searchParams.get("source")
+      )
         .then(result => {
           res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
           res.end(JSON.stringify(result));
