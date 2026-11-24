@@ -32,3 +32,6 @@ Thumbs.db
 
 # Local helper with literal secrets for Render dashboard (never commit)
 RENDER_ENV_VALUES.txt
+
+# Fresh cookie payload for Render dashboard (never commit)
+RENDER_COOKIES_B64.txt
