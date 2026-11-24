@@ -60,6 +60,7 @@ function cleanLines(text) {
 
 async function downloadHls(playlistUrl, depth = 0) {
   if (depth > 3) throw new Error("HLS playlist too deep");
+  console.log("[local-audio] downloading HLS:", new URL(playlistUrl).host);
   const text = (await fetchBuffer(playlistUrl)).toString("utf8");
   const lines = cleanLines(text);
 
@@ -77,17 +78,23 @@ async function downloadHls(playlistUrl, depth = 0) {
 
   const segments = lines.filter((l) => !l.startsWith("#"));
   if (!segments.length) throw new Error("empty HLS playlist");
+  console.log("[local-audio] HLS segments:", segments.length);
 
   const file = path.join(TEMP_DIR, "hls-" + process.pid + "-" + (++counter) + ".ts");
   const fd = fs.openSync(file, "w");
+  let bytes = 0;
   try {
-    for (const seg of segments) {
-      const segUrl = new URL(seg, playlistUrl).href;
-      fs.writeSync(fd, await fetchBuffer(segUrl));
+    for (let i = 0; i < segments.length; i++) {
+      const segUrl = new URL(segments[i], playlistUrl).href;
+      const chunk = await fetchBuffer(segUrl);
+      bytes += chunk.length;
+      fs.writeSync(fd, chunk);
+      if ((i + 1) % 10 === 0) console.log(`[local-audio] ${i + 1}/${segments.length} segments`);
     }
   } finally {
     fs.closeSync(fd);
   }
+  console.log("[local-audio] HLS done:", bytes, "bytes");
   return file;
 }
 

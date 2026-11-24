@@ -307,7 +307,9 @@ async function handleCommand(message, client, distube, clientsMap) {
           try {
             console.log(`[bot-check fallback] YouTube blocked. Trying SoundCloud for: ${originalQuery}`);
             const scTracks = await executor._soundcloudPlugin.search(originalQuery, "track", 1);
+            console.log(`[bot-check fallback] SoundCloud results: ${Array.isArray(scTracks) ? scTracks.length : 0}`);
             if (Array.isArray(scTracks) && scTracks[0]?.url) {
+              console.log(`[bot-check fallback] playing SoundCloud URL: ${scTracks[0].url}`);
               const execTextChannel =
                 executor.channels?.cache?.get(message.channelId) || message.channel;
               await execDistube.play(userVoiceChannel, scTracks[0].url, {
@@ -315,6 +317,7 @@ async function handleCommand(message, client, distube, clientsMap) {
                 textChannel: execTextChannel,
                 member: message.member
               });
+              console.log("[bot-check fallback] distube.play(SoundCloud) resolved");
               if (searchMsg && typeof searchMsg.delete === "function") {
                 searchMsg.delete().catch(() => {});
               }
