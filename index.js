@@ -44,8 +44,83 @@ process.env.FFMPEG_PATH = ffmpegPath;
 // Lightweight health-check HTTP server for platforms like Render / Railway / Koyeb
 const http = require("http");
 const https = require("https");
+const { execFile } = require("child_process");
+const { promisify } = require("util");
+const execFileAsync = promisify(execFile);
+
+// Guarded audio pipeline self-test. Render free plan has no SSH/one-off jobs,
+// so this is the only way to verify yt-dlp + cookies + ffmpeg + Opus end to end
+// on the deployed host. Disabled unless DIAG_TOKEN is configured.
+async function runAudioDiag() {
+  const path2 = require("path");
+  const ytDir = path2.join(path2.dirname(require.resolve("@distube/yt-dlp")), "..", "bin");
+  const ytBin = path2.join(ytDir, process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp");
+  const extra = (globalThis.__ytdlpExtraFlags ? globalThis.__ytdlpExtraFlags() : {}) || {};
+  const flags = [];
+  if (extra.cookies) flags.push("--cookies", extra.cookies);
+  if (extra.cookiesFromBrowser) flags.push("--cookies-from-browser", extra.cookiesFromBrowser);
+  if (extra.proxy) flags.push("--proxy", extra.proxy);
+  if (extra.extractorArgs) flags.push("--extractor-args", extra.extractorArgs);
+
+  const url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+  const info = await execFileAsync(
+    ytBin,
+    ["--no-warnings", "--dump-single-json", "--skip-download", ...flags, url],
+    { timeout: 60000, maxBuffer: 16 * 1024 * 1024 }
+  );
+  const meta = JSON.parse(info.stdout);
+  if (meta.title === undefined && meta.id === undefined) throw new Error("yt-dlp returned no metadata");
+
+  const best = (meta.formats || []).filter(f => f.url && (f.acodec !== "none" || f.vcodec === "none"))
+    .sort((a, b) => (b.tbr || 0) - (a.tbr || 0))[0];
+  const streamUrl = (best && best.url) || meta.url;
+  if (!streamUrl) throw new Error("no playable stream URL found");
+
+  const ffmpeg = process.env.FFMPEG_PATH || ffmpegPath;
+  const pcm = await execFileAsync(
+    ffmpeg,
+    ["-v", "error", "-i", streamUrl, "-t", "1", "-ac", "2", "-ar", "48000", "-f", "s16le", "pipe:1"],
+    { encoding: "buffer", timeout: 60000, maxBuffer: 16 * 1024 * 1024 }
+  );
+  const opusBuf = await new Promise((resolve, reject) => {
+    const { opus } = require("prism-media");
+    const enc = new opus.Encoder({ rate: 48000, channels: 2, frameSize: 960 });
+    let out = Buffer.alloc(0);
+    const timer = setTimeout(() => reject(new Error("Opus encode timeout")), 15000);
+    enc.on("data", chunk => { out = Buffer.concat([out, chunk]); });
+    enc.on("error", reject);
+    enc.on("end", () => { clearTimeout(timer); resolve(out); });
+    enc.end(pcm.stdout);
+  });
+  return {
+    ok: true,
+    title: meta.title,
+    cookies: extra.cookies ? path2.basename(extra.cookies) : null,
+    pcmBytes: pcm.stdout.length,
+    opusBytes: opusBuf.length
+  };
+}
+
 if (process.env.PORT) {
   const healthServer = http.createServer((req, res) => {
+    if (req.url && req.url.startsWith("/diag")) {
+      if (!process.env.DIAG_TOKEN || req.headers["x-diag-token"] !== process.env.DIAG_TOKEN) {
+        res.writeHead(404, { "Content-Type": "text/plain" });
+        res.end("Not found");
+        return;
+      }
+      runAudioDiag()
+        .then(result => {
+          res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+          res.end(JSON.stringify(result));
+        })
+        .catch(err => {
+          console.error("[diag] audio self-test failed:", err && err.message);
+          res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+          res.end(JSON.stringify({ ok: false, error: String(err && err.message || err) }));
+        });
+      return;
+    }
     res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
     res.end("Bot is alive and running!");
   });
