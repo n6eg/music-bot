@@ -115,6 +115,7 @@ async function runAudioDiag(client, noCookies, source) {
   } else if (source === "soundcloud") {
     const { SoundCloudPlugin, SearchType } = require("@distube/soundcloud");
     const sc = new SoundCloudPlugin();
+    require("./local-audio").patchSoundCloudPlugin(sc);
     const tracks = await sc.search("rick astley never gonna give you up", SearchType.Track, 1);
     if (!tracks || !tracks[0]) throw new Error("SoundCloud search returned no tracks");
     const song = tracks[0];
