@@ -115,13 +115,14 @@ async function runAudioDiag(client, noCookies, source) {
   try {
     pcm = await execFileAsync(
       ffmpeg,
-      ["-v", "error", "-protocol_whitelist", "file,http,https,tcp,tls,crypto", "-i", streamUrl,
+      ["-v", "error", "-nostdin", "-protocol_whitelist", "file,http,https,tcp,tls,crypto", "-i", streamUrl,
         "-t", "1", "-ac", "2", "-ar", "48000", "-f", "s16le", "pipe:1"],
       { encoding: "buffer", timeout: 60000, maxBuffer: 16 * 1024 * 1024 }
     );
   } catch (e) {
     throw new Error("ffmpeg failed: code=" + (e.code || "?") + " killed=" + !!e.killed +
-      " signal=" + (e.signal || "?") + " stderr=" + String(e.stderr || "").slice(0, 400));
+      " signal=" + (e.signal || "?") + " msg=" + String(e.message || "").slice(0, 300) +
+      " stderr=" + String(e.stderr || "").slice(0, 400));
   }
   const opusBuf = await new Promise((resolve, reject) => {
     const { opus } = require("prism-media");
