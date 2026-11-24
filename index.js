@@ -51,12 +51,29 @@ const execFileAsync = promisify(execFile);
 // Guarded audio pipeline self-test. Render free plan has no SSH/one-off jobs,
 // so this is the only way to verify yt-dlp + cookies + ffmpeg + Opus end to end
 // on the deployed host. Disabled unless DIAG_TOKEN is configured.
-async function runAudioDiag() {
+async function runAudioDiag(client, noCookies) {
   const path2 = require("path");
-  const extra = (globalThis.__ytdlpExtraFlags ? globalThis.__ytdlpExtraFlags() : {}) || {};
   const { json: ytdlpJson } = require("@distube/yt-dlp");
+  const extra = (globalThis.__ytdlpExtraFlags ? globalThis.__ytdlpExtraFlags() : {}) || {};
 
   const url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+  if (client) {
+    // Probe a specific player client (and optionally no cookies) to find a
+    // combination that works from this hosting IP.
+    const ytDir = path2.join(path2.dirname(require.resolve("@distube/yt-dlp")), "..", "bin");
+    const ytBin = path2.join(ytDir, process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp");
+    const args = ["--no-warnings", "--dump-single-json", "--skip-download", "--format", "worst"];
+    if (!noCookies && extra.cookies) args.push("--cookies", extra.cookies);
+    args.push("--extractor-args", "youtube:player_client=" + client, url);
+    try {
+      const probe = await execFileAsync(ytBin, args, { timeout: 60000, maxBuffer: 16 * 1024 * 1024 });
+      const m = JSON.parse(probe.stdout);
+      return { ok: true, client, cookies: !noCookies && !!extra.cookies, title: m.title, formats: (m.formats || []).length };
+    } catch (e) {
+      return { ok: false, client, cookies: !noCookies && !!extra.cookies, error: String(e.message || e).slice(0, 500) };
+    }
+  }
+
   // Use the SAME patched json() that real playback uses, including the
   // automatic fallback to tv/web_safari/mweb/ios clients on bot-check.
   const meta = await ytdlpJson(url, {
@@ -106,7 +123,8 @@ if (process.env.PORT) {
         res.end("Not found");
         return;
       }
-      runAudioDiag()
+      const u = new URL(req.url, "http://localhost");
+      runAudioDiag(u.searchParams.get("client"), u.searchParams.get("nocookies") === "1")
         .then(result => {
           res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
           res.end(JSON.stringify(result));
