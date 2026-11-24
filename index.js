@@ -53,23 +53,20 @@ const execFileAsync = promisify(execFile);
 // on the deployed host. Disabled unless DIAG_TOKEN is configured.
 async function runAudioDiag() {
   const path2 = require("path");
-  const ytDir = path2.join(path2.dirname(require.resolve("@distube/yt-dlp")), "..", "bin");
-  const ytBin = path2.join(ytDir, process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp");
   const extra = (globalThis.__ytdlpExtraFlags ? globalThis.__ytdlpExtraFlags() : {}) || {};
-  const flags = [];
-  if (extra.cookies) flags.push("--cookies", extra.cookies);
-  if (extra.cookiesFromBrowser) flags.push("--cookies-from-browser", extra.cookiesFromBrowser);
-  if (extra.proxy) flags.push("--proxy", extra.proxy);
-  if (extra.extractorArgs) flags.push("--extractor-args", extra.extractorArgs);
+  const { json: ytdlpJson } = require("@distube/yt-dlp");
 
   const url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
-  const info = await execFileAsync(
-    ytBin,
-    ["--no-warnings", "--dump-single-json", "--skip-download", ...flags, url],
-    { timeout: 60000, maxBuffer: 16 * 1024 * 1024 }
-  );
-  const meta = JSON.parse(info.stdout);
-  if (meta.title === undefined && meta.id === undefined) throw new Error("yt-dlp returned no metadata");
+  // Use the SAME patched json() that real playback uses, including the
+  // automatic fallback to tv/web_safari/mweb/ios clients on bot-check.
+  const meta = await ytdlpJson(url, {
+    dumpSingleJson: true,
+    noWarnings: true,
+    skipDownload: true,
+    simulate: true,
+    format: "ba/ba*"
+  });
+  if (!meta || (meta.title === undefined && meta.id === undefined)) throw new Error("yt-dlp returned no metadata");
 
   const best = (meta.formats || []).filter(f => f.url && (f.acodec !== "none" || f.vcodec === "none"))
     .sort((a, b) => (b.tbr || 0) - (a.tbr || 0))[0];
