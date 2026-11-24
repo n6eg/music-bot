@@ -148,12 +148,17 @@ function checkBinaries() {
   const path2 = require("path");
 
   // --- ffmpeg ---
+  // Use the functional selector: ffmpeg-static can pass `-version` yet die
+  // with SIGSEGV on first decode (Render). The selector rejects such binaries.
   let ffmpegPath = null;
   try {
-    ffmpegPath = process.env.FFMPEG_BIN || require("ffmpeg-static");
-  } catch (e) { /* handled below */ }
+    ffmpegPath = require("./ffmpeg-select").selectFfmpeg();
+  } catch (e) {
+    console.warn("\n⚠️  [ffmpeg] no binary passed the decode test:", e.message);
+    try { ffmpegPath = process.env.FFMPEG_BIN || require("ffmpeg-static"); } catch (e2) { /* handled below */ }
+  }
   if (!ffmpegPath) {
-    console.warn("\n⚠️  [ffmpeg] ffmpeg-static failed to load. Run on the host:\n" +
+    console.warn("\n⚠️  [ffmpeg] no ffmpeg binary found. On the host run:\n" +
       "   apt-get update && apt-get install -y ffmpeg\n" +
       "   ثم ضع في .env:  FFMPEG_BIN=/usr/bin/ffmpeg\n");
   } else {

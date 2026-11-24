@@ -35,10 +35,18 @@ for (const p of [
 }
 
 require("./yt-dlp-patch");
-// Prefer the SYSTEM ffmpeg when FFMPEG_BIN is set. On bot.hosting/VPS the
-// bundled ffmpeg-static binary often segfaults (SIGSEGV) -> music shows
-// "playing" but no sound ever comes out. FFMPEG_BIN=/usr/bin/ffmpeg fixes it.
-const ffmpegPath = process.env.FFMPEG_BIN || require("ffmpeg-static");
+// Pick an ffmpeg binary that passes a REAL decode test. A version string is
+// not enough: on Render the bundled ffmpeg-static binary starts fine but
+// segfaults (SIGSEGV) as soon as it decodes audio, producing silence.
+let ffmpegPath;
+try {
+  const { selectFfmpeg } = require("./ffmpeg-select");
+  ffmpegPath = selectFfmpeg();
+  console.log("✅ [ffmpeg] selected working binary:", ffmpegPath);
+} catch (e) {
+  try { ffmpegPath = process.env.FFMPEG_BIN || require("ffmpeg-static"); } catch (e2) { ffmpegPath = "ffmpeg"; }
+  console.warn("⚠️ [ffmpeg] functional selection failed, using fallback:", e.message);
+}
 process.env.FFMPEG_PATH = ffmpegPath;
 
 // Lightweight health-check HTTP server for platforms like Render / Railway / Koyeb
