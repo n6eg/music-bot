@@ -79,12 +79,23 @@ async function downloadHls(playlistUrl, depth = 0) {
 
   const segments = lines.filter((l) => !l.startsWith("#"));
   if (!segments.length) throw new Error("empty HLS playlist");
-  console.log("[local-audio] HLS segments:", segments.length);
 
-  const file = path.join(TEMP_DIR, "hls-" + process.pid + "-" + (++counter) + ".ts");
+  // SoundCloud serves fragmented MP4 (init.mp4 + data000.m4s ...). The init
+  // segment from EXT-X-MAP MUST be prepended or ffmpeg reports "Invalid data".
+  const mapLine = lines.find((l) => l.startsWith("#EXT-X-MAP"));
+  const mapUri = mapLine && (mapLine.match(/URI="([^"]+)"/) || [])[1];
+  console.log("[local-audio] HLS segments:", segments.length, "init:", !!mapUri);
+
+  const ext = mapUri ? ".m4a" : ".ts";
+  const file = path.join(TEMP_DIR, "hls-" + process.pid + "-" + (++counter) + ext);
   const fd = fs.openSync(file, "w");
   let bytes = 0;
   try {
+    if (mapUri) {
+      const init = await fetchBuffer(new URL(mapUri, playlistUrl).href);
+      bytes += init.length;
+      fs.writeSync(fd, init);
+    }
     for (let i = 0; i < segments.length; i++) {
       const segUrl = new URL(segments[i], playlistUrl).href;
       const chunk = await fetchBuffer(segUrl);
