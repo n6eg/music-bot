@@ -351,6 +351,9 @@ async function startBot(token, index) {
   });
 
   const soundCloudPlugin = new SoundCloudPlugin();
+  // ffmpeg's own network stack crashes with SIGSEGV on Render. Download the
+  // remote HLS stream with Node first and give ffmpeg a local file instead.
+  require("./local-audio").patchSoundCloudPlugin(soundCloudPlugin);
   const plugins = [
     new SpotifyPlugin(),
     soundCloudPlugin
