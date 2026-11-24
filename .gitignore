@@ -29,3 +29,6 @@ npm-debug.log*
 # OS junk
 .DS_Store
 Thumbs.db
+
+# Local helper with literal secrets for Render dashboard (never commit)
+RENDER_ENV_VALUES.txt

@@ -182,26 +182,22 @@ function checkBinaries() {
       console.warn("\n⚠️  [yt-dlp] binary missing at", ytBin, "- run on the host:\n" +
         "   node -e \"require('@distube/yt-dlp').download().then(v=>console.log(v))\"\n");
     } else {
-      // On Linux, a stray Windows .exe (from YTDLP_URL=...yt-dlp.exe in .env)
-      // will have no ELF magic -> yt-dlp can never run -> YouTube silently dead.
-      if (process.platform !== "win32") {
-        const head = fs2.readFileSync(ytBin).subarray(0, 4);
-        if (head.toString("hex") !== "7f454c46") {
-          console.warn("\n⚠️  [yt-dlp] the binary at", ytBin, "is NOT a Linux ELF executable.");
-          console.warn("   Usually caused by YTDLP_URL=...yt-dlp.exe in .env (Windows file on Linux).");
-          console.warn("   Fix: delete YTDLP_URL from .env, then on the host run:");
-          console.warn("       rm -f " + ytBin + " && node -e \"require('@distube/yt-dlp').download()\"\n");
-          // NEW: auto-repair the broken binary right here instead of waiting
-          // for the user to fix it manually.
-          repairYtDlp(ytBin).catch(() => { });
-        }
-      }
+      // Test the binary by RUNNING it, not by demanding an ELF header.
+      // On CI hosts (Render sets CI=true) @distube/yt-dlp installs a Python
+      // script with a shebang - it is perfectly executable but has no ELF magic.
+      let ytWorks = false;
       try {
-        const r = spawnSync(ytBin, ["--version"], { encoding: "utf8", timeout: 15000 });
-        if (r.stdout && r.stdout.trim()) console.log("✅ [yt-dlp]", r.stdout.trim().split("\n")[0]);
-        else console.warn("⚠️  [yt-dlp] cannot run:", (r.stderr || "").slice(0, 150));
-      } catch (e) {
-        console.warn("⚠️  [yt-dlp] check threw:", e.message);
+        const probe = spawnSync(ytBin, ["--version"], { encoding: "utf8", timeout: 15000 });
+        const v = (probe.stdout || "").trim();
+        if (!probe.error && v && /^(yt-dlp\s|\d{4}\.)/i.test(v)) {
+          console.log("✅ [yt-dlp]", v.split("\n")[0]);
+          ytWorks = true;
+        }
+      } catch (e) { /* handled below */ }
+
+      if (!ytWorks) {
+        console.warn("\n⚠️  [yt-dlp] binary at", ytBin, "cannot run. Trying auto-repair...");
+        repairYtDlp(ytBin).catch(() => { });
       }
     }
   } catch (e) {
@@ -212,36 +208,26 @@ function checkBinaries() {
 // --- 5b. Auto-repair a broken yt-dlp binary (Windows .exe on Linux, or a
 // Python stub that can't execute). Downloads the correct standalone Linux
 // ELF and atomically replaces the bad file, then re-checks.
-function repairYtDlp(ytBin) {
-  return new Promise((resolve) => {
-    const fs2 = require("fs");
-    const path2 = require("path");
-    const https = require("https");
-    if (process.platform === "win32") return resolve(false); // nothing to repair on Windows
-
-    const url =
-      "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux";
-    console.log("[yt-dlp] auto-repair: downloading Linux binary from", url);
-    const tmp = ytBin + ".repair";
-    const file = fs2.createWriteStream(tmp);
-    const req = https.get(url, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        // follow redirect
-        https.get(res.headers.location, (res2) => {
-          res2.pipe(file);
-          file.on("finish", () => {
-            file.close(() => finishRepair(fs2, tmp, ytBin, resolve));
-          });
-        }).on("error", () => { try { fs2.unlinkSync(tmp); } catch (e) { } resolve(false); });
-        return;
-      }
-      res.pipe(file);
-      file.on("finish", () => {
-        file.close(() => finishRepair(fs2, tmp, ytBin, resolve));
-      });
-    });
-    req.on("error", () => { try { fs2.unlinkSync(tmp); } catch (e) { } resolve(false); });
-  });
+async function repairYtDlp(ytBin) {
+  if (process.platform === "win32") return false; // nothing to repair on Windows
+  const url =
+    "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux";
+  const tmp = ytBin + ".repair";
+  console.log("[yt-dlp] auto-repair: downloading Linux binary from", url);
+  try {
+    const res = await fetch(url, { redirect: "follow" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.subarray(0, 4).toString("hex") !== "7f454c46") {
+      throw new Error("downloaded file is not a Linux ELF");
+    }
+    fs.writeFileSync(tmp, buf);
+    return finishRepair(fs, tmp, ytBin, () => { });
+  } catch (e) {
+    try { fs.unlinkSync(tmp); } catch (e2) { }
+    console.warn("[yt-dlp] auto-repair failed:", e.message);
+    return false;
+  }
 }
 
 function finishRepair(fs2, tmp, ytBin, resolve) {
