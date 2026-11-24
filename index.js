@@ -69,7 +69,46 @@ async function runAudioDiag(client, noCookies, source) {
   let streamUrl = null;
   let title = null;
 
-  if (source === "direct") {
+  let tempFile = null;
+  if (source === "file") {
+    // Does ffmpeg decode a LOCAL file on this host? (no network stack)
+    const os2 = require("os");
+    const rate = 48000, channels = 2, seconds = 0.2;
+    const data = Buffer.alloc(rate * channels * seconds * 2);
+    const header = Buffer.alloc(44);
+    header.write("RIFF", 0); header.writeUInt32LE(36 + data.length, 4); header.write("WAVE", 8);
+    header.write("fmt ", 12); header.writeUInt32LE(16, 16); header.writeUInt16LE(1, 20);
+    header.writeUInt16LE(channels, 22); header.writeUInt32LE(rate, 24);
+    header.writeUInt32LE(rate * channels * 2, 28); header.writeUInt16LE(channels * 2, 32);
+    header.writeUInt16LE(16, 34); header.write("data", 36); header.writeUInt32LE(data.length, 40);
+    tempFile = path2.join(os2.tmpdir(), "audio-diag-" + process.pid + ".wav");
+    require("fs").writeFileSync(tempFile, Buffer.concat([header, data]));
+    title = "Local WAV file";
+    streamUrl = tempFile;
+  } else if (source === "fetch") {
+    // Does Node's HTTPS work here? Fetch a small MP3 to disk, then let ffmpeg
+    // decode the local file (avoiding ffmpeg's own network stack entirely).
+    const os2 = require("os");
+    const https2 = require("https");
+    tempFile = path2.join(os2.tmpdir(), "audio-diag-" + process.pid + ".mp3");
+    const remote = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3";
+    await new Promise((resolve, reject) => {
+      const file = require("fs").createWriteStream(tempFile);
+      https2.get(remote, (r) => {
+        if (r.statusCode !== 200) { r.resume(); reject(new Error("HTTP " + r.statusCode)); return; }
+        let size = 0;
+        r.on("data", (c) => {
+          size += c.length;
+          if (size > 2 * 1024 * 1024) { r.destroy(); file.end(); resolve(); return; }
+          file.write(c);
+        });
+        r.on("end", () => { file.end(); resolve(); });
+        r.on("error", reject);
+      }).on("error", reject);
+    });
+    title = "Node-fetched MP3";
+    streamUrl = tempFile;
+  } else if (source === "direct") {
     // Plain MP3 over HTTPS - isolates whether ffmpeg works at all on this host.
     title = "Direct MP3 test";
     streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3";
@@ -142,6 +181,7 @@ async function runAudioDiag(client, noCookies, source) {
     enc.on("end", () => { clearTimeout(timer); resolve(out); });
     enc.end(pcm.stdout);
   });
+  if (tempFile) { try { require("fs").unlinkSync(tempFile); } catch (e) { } }
   return {
     ok: true,
     source: source || "youtube",
