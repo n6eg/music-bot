@@ -11,6 +11,7 @@ const http = require("http");
 const https = require("https");
 const os = require("os");
 const path = require("path");
+const { pathToFileURL } = require("url");
 
 const MAX_BYTES = 80 * 1024 * 1024;
 const TEMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "dule-audio-"));
@@ -95,7 +96,7 @@ async function downloadHls(playlistUrl, depth = 0) {
     fs.closeSync(fd);
   }
   console.log("[local-audio] HLS done:", bytes, "bytes");
-  return file;
+  return pathToFileURL(file).href;
 }
 
 function extensionFor(url, buffer) {
@@ -113,7 +114,7 @@ async function downloadRemoteAudio(remoteUrl) {
   const buf = await fetchBuffer(remoteUrl);
   const file = path.join(TEMP_DIR, "audio-" + process.pid + "-" + (++counter) + extensionFor(remoteUrl, buf));
   fs.writeFileSync(file, buf);
-  return file;
+  return pathToFileURL(file).href;
 }
 
 function cleanupOldFiles(maxAgeMs = 6 * 60 * 60 * 1000) {
@@ -127,7 +128,9 @@ function cleanupOldFiles(maxAgeMs = 6 * 60 * 60 * 1000) {
 }
 
 function patchSoundCloudPlugin(plugin) {
-  if (!plugin || plugin.__localAudioPatched) return plugin;
+  // Only needed on the Linux host (Render) where ffmpeg's network stack
+  // segfaults. Windows/local ffmpeg handles remote URLs normally.
+  if (process.platform !== "linux" || !plugin || plugin.__localAudioPatched) return plugin;
   const original = plugin.getStreamURL.bind(plugin);
   plugin.getStreamURL = async function (song) {
     const remote = await original(song);
