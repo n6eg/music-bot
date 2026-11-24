@@ -61,7 +61,11 @@ async function runAudioDiag(client, noCookies, source) {
   let streamUrl = null;
   let title = null;
 
-  if (source === "soundcloud") {
+  if (source === "direct") {
+    // Plain MP3 over HTTPS - isolates whether ffmpeg works at all on this host.
+    title = "Direct MP3 test";
+    streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3";
+  } else if (source === "soundcloud") {
     const { SoundCloudPlugin, SearchType } = require("@distube/soundcloud");
     const sc = new SoundCloudPlugin();
     const tracks = await sc.search("rick astley never gonna give you up", SearchType.Track, 1);
@@ -116,7 +120,8 @@ async function runAudioDiag(client, noCookies, source) {
       { encoding: "buffer", timeout: 60000, maxBuffer: 16 * 1024 * 1024 }
     );
   } catch (e) {
-    throw new Error("ffmpeg failed: code=" + (e.code || "?") + " stderr=" + String(e.stderr || "").slice(0, 400));
+    throw new Error("ffmpeg failed: code=" + (e.code || "?") + " killed=" + !!e.killed +
+      " signal=" + (e.signal || "?") + " stderr=" + String(e.stderr || "").slice(0, 400));
   }
   const opusBuf = await new Promise((resolve, reject) => {
     const { opus } = require("prism-media");
