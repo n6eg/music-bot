@@ -322,7 +322,7 @@ Requested format is not available. Use --list-formats
 ### ما تغيّر في المشروع
 
 - لم يمسّ نظام Discord Voice ولا أوامر التحكم.
-- على Render_ONLY يتم اختيار `soundcloud` تلقائياً كمنصة بحث افتراضية (عبر `MUSIC_PLATFORM` أو `RENDER=true`)، بينما يبقى YouTube يعمل محلياً على Windows كما كان.
+- على Render فقط يتم اختيار `soundcloud` تلقائياً كمنصة بحث افتراضية (عبر `MUSIC_PLATFORM` أو `RENDER` / `RENDER_EXTERNAL_URL`)، بينما يبقى YouTube يعمل محلياً على Windows كما كان.
 - `-platform youtube` ما زال موجوداً، لكن على Render سيصطدم بنفس قيود يوتيوب؛ استخدم `soundcloud` هناك.
 - عند فشل يوتيوب بأي مسار، يتحول البوت تلقائياً إلى ساوندكلاود ويُخبر المستخدم بذلك.
 - بث ساوندكلاود يُنزَّل عبر Node إلى ملف محلي قبل تمريره إلى ffmpeg، لأن شبكة ffmpeg نفسها محجوبة داخل حاوية Render. يتم التعامل مع صيغة fMP4 الخاصة بساوندكلاود (إضافة `init.mp4` قبل المقاطع) لضمان إخراج صوت حقيقي.
