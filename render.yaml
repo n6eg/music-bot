@@ -30,5 +30,7 @@ services:
         sync: false
       - key: YTDLP_FALLBACK_CLIENTS
         value: tv,web_safari,mweb,ios
+      - key: MUSIC_PLATFORM
+        value: soundcloud
       - key: VOICE_RECONNECT_DELAY_MS
         value: 5000

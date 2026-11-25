@@ -381,30 +381,71 @@ async function ytSearch(query, limit = 5) {
  * @param {object} soundcloudPlugin - the SoundCloudPlugin instance (optional)
  * @returns {Promise<{url:string, engine:string, name?:string, duration?:number}|null>}
  */
-async function resolveQueryToUrl(query, soundcloudPlugin) {
+/**
+ * Effective search platform. MUSIC_PLATFORM (set on Render) intentionally
+ * overrides the per-server config so a datacenter host can use a source that
+ * actually allows playback, without removing the `-platform` command.
+ */
+function getEffectivePlatform(config) {
+  const forced = String(process.env.MUSIC_PLATFORM || "").trim().toLowerCase();
+  if (["youtube", "spotify", "soundcloud"].includes(forced)) return forced;
+  // Render is a datacenter host: YouTube bot-check reliably blocks audio
+  // extraction there. Default to a source that permits playback unless the
+  // server config explicitly selects something else. Windows/local keeps
+  // YouTube as before.
+  const onRender = process.env.RENDER === "true" || !!process.env.RENDER_EXTERNAL_URL;
+  if (onRender && !(config && config.platform)) return "soundcloud";
+  return (config && config.platform) || "youtube";
+}
+
+async function resolveQueryToUrl(query, soundcloudPlugin, config) {
   const cleanQ = String(query || "").trim().toLowerCase();
-  const cacheKey = `res:${cleanQ}`;
+  const platform = getEffectivePlatform(config);
+  const cacheKey = `res:${platform}:${cleanQ}`;
   const cached = getCachedResult(cacheKey);
   if (cached) return cached;
 
-  try {
-    const [top] = await ytSearch(query, 1);
-    if (top?.url) {
-      const result = { url: top.url, engine: "youtube", name: top.name, duration: top.duration };
-      setCachedResult(cacheKey, result);
-      return result;
-    }
-  } catch (e) { /* fall through */ }
+  // YouTube search is only attempted when it is the selected engine. On
+  // Render it is skipped entirely: YouTube's bot-check blocks the datacenter
+  // IP, so spending ~80s on search/extraction only to fail is pointless.
+  if (platform === "youtube") {
+    try {
+      const [top] = await ytSearch(query, 1);
+      if (top?.url) {
+        const result = { url: top.url, engine: "youtube", name: top.name, duration: top.duration };
+        setCachedResult(cacheKey, result);
+        return result;
+      }
+    } catch (e) { /* fall through */ }
+  }
 
   if (soundcloudPlugin && typeof soundcloudPlugin.search === "function") {
     try {
       const songs = await soundcloudPlugin.search(query, "track", 1);
       if (Array.isArray(songs) && songs[0]?.url) {
-        const result = { url: songs[0].url, engine: "soundcloud", name: songs[0].name, duration: songs[0].duration };
+        const result = {
+          url: songs[0].url,
+          engine: "soundcloud",
+          name: songs[0].name || songs[0].title,
+          duration: songs[0].duration
+        };
         setCachedResult(cacheKey, result);
         return result;
       }
     } catch (e) { /* fall through */ }
+  }
+
+  // Last resort: if YouTube was selected but search failed, try it once
+  // directly. This keeps the old behavior on hosts where YouTube works.
+  if (platform !== "youtube") {
+    try {
+      const [top] = await ytSearch(query, 1);
+      if (top?.url) {
+        const result = { url: top.url, engine: "youtube", name: top.name, duration: top.duration };
+        setCachedResult(cacheKey, result);
+        return result;
+      }
+    } catch (e) { /* ignore */ }
   }
   return null;
 }
@@ -421,5 +462,6 @@ module.exports = {
   getChannelForBot,
   formatDuration,
   ytSearch,
-  resolveQueryToUrl
+  resolveQueryToUrl,
+  getEffectivePlatform
 };

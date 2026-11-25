@@ -261,6 +261,7 @@ const { handlePanelInteraction } = require("./panel");
 const { getConfig, saveConfig, getBotChannel247 } = require("./config-store");
 const { attachVoiceGuard } = require("./voice-guard");
 const { makeT, isBotCheckError } = require("./i18n");
+const { getEffectivePlatform } = require("./helpers");
 
 // Opus encoder sanity check. @discordjs/opus only ships prebuilds up to a few
 // Node ABIs; on newer Node (e.g. v26) it fails to load and prism-media falls
@@ -681,14 +682,18 @@ async function startBot(token, index) {
         flags: MessageFlags.Ephemeral
       });
 
+      let playQuery = query;
+      let resolvedName = null;
       try {
-        let playQuery = query;
         const isUrl = /^https?:\/\//i.test(query);
         const curConfig = getConfig();
-        if (!isUrl && (curConfig.platform || "youtube") === "youtube") {
+        if (!isUrl && getEffectivePlatform(curConfig) !== "spotify") {
           const { resolveQueryToUrl } = require("./helpers");
-          const resolved = await resolveQueryToUrl(query, client._soundcloudPlugin);
-          if (resolved?.url) playQuery = resolved.url;
+          const resolved = await resolveQueryToUrl(query, client._soundcloudPlugin, curConfig);
+          if (resolved?.url) {
+            playQuery = resolved.url;
+            resolvedName = resolved.name || null;
+          }
         }
 
         await distube.play(voiceChannel, playQuery, {
@@ -696,6 +701,24 @@ async function startBot(token, index) {
           member: interaction.member
         });
       } catch (err) {
+        // Same safe fallback as the message command: YouTube bot-check on a
+        // datacenter IP must not leave the user with silence.
+        if (isBotCheckError(err?.message) && client._soundcloudPlugin && !/soundcloud\.com/i.test(playQuery)) {
+          try {
+            const tracks = await client._soundcloudPlugin.search(resolvedName || query, "track", 1);
+            if (Array.isArray(tracks) && tracks[0]?.url) {
+              await distube.play(voiceChannel, tracks[0].url, {
+                textChannel: interaction.channel,
+                member: interaction.member
+              });
+              interaction.followUp({
+                content: "🔊 *(تم التشغيل عبر ساوندكلاود لتجاوز حجب يوتيوب)*",
+                flags: MessageFlags.Ephemeral
+              }).catch(() => {});
+              return;
+            }
+          } catch (scErr) { /* report the original error below */ }
+        }
         interaction.followUp({
           content: `❌ **خطأ في التشغيل:** ${err.message}`,
           flags: MessageFlags.Ephemeral

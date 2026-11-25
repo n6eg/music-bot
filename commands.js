@@ -10,7 +10,7 @@ const {
   clearBotChannel247
 } = require("./config-store");
 const { suppressReconnect } = require("./voice-guard");
-const { aliasMap, safeSetNickname, setGuildAvatar, setGuildBanner, getChannelForBot, formatDuration, ytSearch, resolveQueryToUrl } = require("./helpers");
+const { aliasMap, safeSetNickname, setGuildAvatar, setGuildBanner, getChannelForBot, formatDuration, ytSearch, resolveQueryToUrl, getEffectivePlatform } = require("./helpers");
 const { selfVoiceChannelId, buildRoomRange, collectSpreadStats, formatCensus, buildSpreadComponents, SPREAD_PROMPT_TEXT, executeSpread, formatSpreadResult } = require("./spread");
 const { makeT, isBotCheckError } = require("./i18n");
 
@@ -274,10 +274,15 @@ async function handleCommand(message, client, distube, clientsMap) {
         // SoundCloud extractor; spotify affects direct links only (Spotify
         // offers no open name-search API). URL input bypasses this entirely.
         const isUrl = /^https?:\/\//i.test(originalQuery);
-        if (!isUrl && (config.platform || "youtube") === "youtube") {
-          // Fast resolve with caching & flatPlaylist
-          const resolved = await resolveQueryToUrl(originalQuery, executor._soundcloudPlugin);
-          if (resolved?.url) playQuery = resolved.url;
+        let resolvedName = null;
+        if (!isUrl && getEffectivePlatform(config) !== "spotify") {
+          // Resolve names through the configured engine. On Render this is
+          // SoundCloud, so no YouTube bot-check delay occurs.
+          const resolved = await resolveQueryToUrl(originalQuery, executor._soundcloudPlugin, config);
+          if (resolved?.url) {
+            playQuery = resolved.url;
+            resolvedName = resolved.name || null;
+          }
         }
 
         // Resolve the text channel via the EXECUTOR client so playback
@@ -306,7 +311,7 @@ async function handleCommand(message, client, distube, clientsMap) {
         if (isBotCheckError(err?.message) && executor._soundcloudPlugin && !/soundcloud\.com/i.test(playQuery)) {
           try {
             console.log(`[bot-check fallback] YouTube blocked. Trying SoundCloud for: ${originalQuery}`);
-            const scTracks = await executor._soundcloudPlugin.search(originalQuery, "track", 1);
+            const scTracks = await executor._soundcloudPlugin.search(resolvedName || originalQuery, "track", 1);
             console.log(`[bot-check fallback] SoundCloud results: ${Array.isArray(scTracks) ? scTracks.length : 0}`);
             if (Array.isArray(scTracks) && scTracks[0]?.url) {
               console.log(`[bot-check fallback] playing SoundCloud URL: ${scTracks[0].url}`);
@@ -677,7 +682,7 @@ async function handleCommand(message, client, distube, clientsMap) {
         .join("\n");
       const info = `⚙️ **إعدادات البوت الحالية:**\n` +
         `• **الاداة (Prefix):** \`${config.prefix}\`\n` +
-        `• **منصة البحث بالاسم (Platform):** \`${config.platform || "youtube"}\`\n` +
+        `• **منصة البحث بالاسم (Platform):** \`${getEffectivePlatform(config)}\`\n` +
         `• **نظام الإمبيد (Embeds):** \`${config.embeds ? "مفعل" : "معطل"}\`\n` +
         `• **اللغة (Language):** \`${config.lang || "ar"}\`\n` +
         `• **سيرفر الدعم:** ${config.serverInvite || "غير محدد"}\n` +
